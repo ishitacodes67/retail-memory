@@ -1,6 +1,6 @@
 # retail-memory
 
-![CI](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml)
 
 An AI agent that tells you when a discount is working, and when it is quietly eating your own sales.
 
@@ -33,14 +33,15 @@ The LLM never does math. It only chooses tools and explains their outputs. Every
 Planned: **Dunnhumby "The Complete Journey"** — household-level grocery transactions with discount, coupon, and display fields per product, per store, per week. Public on Kaggle.
 
 Alternates considered:
-- M5 Walmart: daily item-store sales, good for scale, but no discount field
+- M5 Walmart: daily item-store sales with weekly prices but no explicit promo flag
 - UCI Online Retail II: simpler, but no promo flags
 
-The raw data is not redistributed in this repo. A download script and `.gitignore` keep it local.
+The raw data is not redistributed in this repo. A download script will be added in Week 1, and `.gitignore` keeps the data local. Dunnhumby provides the dataset for classroom and academic use; this project follows its terms.
 
 ## Roadmap
 
-- [x] Week 0: repo scaffold, docs, dataset intake
+- [x] Week 0: repo scaffold, CI, README, living docs
+- [ ] Week 0 (remaining): requirements doc, dataset intake, schema notes
 - [ ] Week 1: DuckDB, SQL, `get_sales_summary`
 - [ ] Week 2: elasticity (naive vs fixed), `recommend_markdown`, backtest
 - [ ] Week 3: rule-based router, Groq tool-calling agent, evals
@@ -55,7 +56,3 @@ TBD. Only numbers from my own notebooks will go here — no illustrative figures
 ## Limitations
 
 TBD. Will cover: the causal assumptions behind the diff-in-diff model, the sample size limits on per-product elasticity estimates, and the fact that the backtest can only check forecast accuracy at the discount depths that were actually used — not depths that were never tried.
-
-## CI
-
-![CI](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml/badge.svg)
