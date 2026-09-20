@@ -1,4 +1,5 @@
 # retail-memory
+![CI](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml/badge.svg)
 
 An LLM tool-calling agent that tells you when a retail discount is working, and when it's quietly eating your own sales.
 
