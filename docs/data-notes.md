@@ -13,21 +13,31 @@
 | coupon_redempt.csv | 2,318 | household_key, DAY, COUPON_UPC, CAMPAIGN | one coupon redemption event |
 
 ## Q1. What is one row of transaction_data?
+
 SQL used:
+
+```sql
 SELECT * FROM txn LIMIT 5;
 SELECT basket_id, COUNT(*) FROM txn GROUP BY basket_id ORDER BY 2 DESC LIMIT 5;
+```
 
 Result:
+
 - First 5 rows all share household 2375 and basket 26984851472
 - Top baskets have 150-168 rows each
 
 My answer: One row is one product line item (one item, quantity, and price) inside one shopping basket, which belongs to one household, on one day, at one store.
 
 ## Q2. How many weeks and days?
+
 SQL used:
+
+```sql
 SELECT MIN(week_no), MAX(week_no), COUNT(DISTINCT week_no), MIN(day), MAX(day) FROM txn;
+```
 
 Result:
+
 - week_no: 1 to 102
 - distinct weeks: 102
 - day: 1 to 711
@@ -35,62 +45,81 @@ Result:
 My answer: The data covers 102 weeks (about 2 years). 711 days / 7 = 101.6, which matches the 102 distinct weeks. Every week appears; no gaps.
 
 ## Q3. How many products, stores and households?
+
 SQL used:
+
+```sql
 SELECT COUNT(DISTINCT product_id), COUNT(DISTINCT store_id), COUNT(DISTINCT household_key) FROM txn;
 SELECT COUNT(DISTINCT t.product_id) FROM txn t LEFT JOIN product p ON t.product_id = p.product_id WHERE p.product_id IS NULL;
+```
 
 Result:
+
 - distinct products: 92,339
 - distinct stores: 582
 - distinct households: 2,500
 - products sold but missing from product.csv: 0
 
-My answer: 92,339 products, 582 stores, 2,500 households. Every product sold has metadata in product.csv (referential integrity holds). 2,500 households is a small slice of shoppers — per-product weekly volumes will be sparse, so I'll need to focus on high-volume products.
+My answer: 92,339 products, 582 stores, 2,500 households. Every product sold has metadata in product.csv (referential integrity holds). 2,500 households is a small slice of shoppers, so per-product weekly volumes will be sparse and I'll need to focus on high-volume products.
 
 ## Q4. What do the three discount columns mean?
+
 SQL used:
+
+```sql
 SELECT MIN(retail_disc), MAX(retail_disc), MIN(coupon_disc), MAX(coupon_disc), MIN(coupon_match_disc), MAX(coupon_match_disc) FROM txn;
 SELECT MAX(coupon_disc) FROM txn;
 SELECT product_id, quantity, sales_value, retail_disc, coupon_disc, coupon_match_disc FROM txn WHERE retail_disc <> 0 LIMIT 10;
 SELECT quantity, sales_value, retail_disc, coupon_disc, coupon_match_disc FROM txn WHERE coupon_disc <> 0 LIMIT 10;
+```
 
 Result:
+
 - retail_disc: min -180.00, max +3.99 (almost always zero or negative)
 - coupon_disc: min -55.93, max 0.00
 - coupon_match_disc: min -7.70, max 0.00
 - Rows where coupon_disc <> 0 include cases with retail_disc = 0 (e.g. qty 2, sales_value 3.78, retail_disc 0, coupon_disc -1.0). So the two discounts are separate, not nested.
 
-My answer (hypothesis, to test on Day 3): All three discount columns are almost always zero or negative — a discount reduces the price. A few positive retail_disc values exist (max +3.99); investigate on Day 3.
+My answer (hypothesis, to test on Day 3): All three discount columns are almost always zero or negative, so a discount reduces the price. A few positive retail_disc values exist (max +3.99); investigate on Day 3.
 
 Tentative formula (hypothesis, not verified):
-    gross_value = sales_value - retail_disc - coupon_disc - coupon_match_disc
-    net_value   = sales_value
-    net_unit_price = net_value / quantity
+
+```
+gross_value    = sales_value - retail_disc - coupon_disc - coupon_match_disc
+net_value      = sales_value
+net_unit_price = net_value / quantity
+```
 
 Because discounts are negative, subtracting them from sales_value reconstructs the pre-discount gross. KEY UNKNOWN: whether coupon_disc is already inside sales_value. If it is, the formula double-counts. Test on Day 3 against known coupon redemptions.
 
 ## Q5. What is causal_data?
+
 SQL used:
+
+```sql
 SELECT * FROM causal LIMIT 10;
 SELECT display, COUNT(*) FROM causal GROUP BY display ORDER BY 2 DESC;
 SELECT mailer, COUNT(*) FROM causal GROUP BY mailer ORDER BY 2 DESC;
 SELECT (display = '0') AS no_display, (mailer = '0') AS no_mailer, COUNT(*) FROM causal GROUP BY 1, 2 ORDER BY 3 DESC;
+```
 
 Result:
+
 - Grain: product_id x store_id x week_no
 - display values: 0, 1, 2, 3, 4, 5, 6, 7, 9, A
 - mailer values: 0, A, C, D, F, H, J, L, P, X, Z
 - Cross-tab:
-  - no display, has mailer:  21,038,745 rows (57.2%)
-  - has display, no mailer:  11,534,183 rows (31.4%)
-  - has display, has mailer:  4,213,596 rows (11.4%)
-  - no display, no mailer:            0 rows (0.0%)
+  - no display, has mailer: 21,038,745 rows (57.2%)
+  - has display, no mailer: 11,534,183 rows (31.4%)
+  - has display, has mailer: 4,213,596 rows (11.5%)
+  - no display, no mailer: 0 rows (0.0%)
 
 My answer: One row is one product, in one store, in one week, with a display flag and a mailer flag.
 
 Code meanings (from the `completejourney` R package documentation, which wraps this dataset):
 
 Display location codes:
+
 | Code | Meaning |
 |------|---------|
 | 0 | Not on Display |
@@ -105,6 +134,7 @@ Display location codes:
 | A | In-Shelf |
 
 Mailer location codes:
+
 | Code | Meaning |
 |------|---------|
 | 0 | Not on ad |
@@ -119,38 +149,43 @@ Mailer location codes:
 | X | Free on interior page |
 | Z | Free on front page, back page or wrap |
 
-Key observation: every row in causal_data has at least one nonzero flag — there are zero rows with both display = '0' and mailer = '0'. So "any nonzero flag = promo" would label 100% of rows as promos. Too loose. Need a stricter definition — for example, a specific range of display codes or specific mailer letters.
+Key observation: every row in causal_data has at least one nonzero flag (0 rows with both display = '0' and mailer = '0'). Most likely this is because the table only lists product-store-weeks where something was featured; a product with no display and no flyer that week simply has no row. Hypothesis: "no row" = "not featured". Test on Day 3 by joining transactions to causal_data on product, store and week.
 
-Note on the name: "causal" here means "marketing treatments". Nobody randomly assigned which products got flyers or displays. That makes this observational data, not experimental. Any causal claim needs a proper design (diff-in-diff, control product, baseline) — which is why Week 4 builds the naive-then-fixed story.
+Note on the name: "causal" here means "marketing treatments". Nobody randomly assigned which products got flyers or displays. That makes this observational data, not experimental. Any causal claim needs a proper design (diff-in-diff, control product, baseline), which is why Week 4 builds the naive-then-fixed story.
 
 ## Q6. Strange rows (zero or negative)?
+
 SQL used:
+
+```sql
 SELECT COUNT(*) FROM txn WHERE quantity <= 0;
 SELECT COUNT(*) FROM txn WHERE sales_value <= 0;
 SELECT * FROM product WHERE product_id IN (5978648, 5978656);
 SELECT (quantity <= 0) AS qty_le0, (sales_value <= 0) AS val_le0, COUNT(*) FROM txn GROUP BY 1, 2 ORDER BY 3 DESC;
+```
 
 Result:
+
 - quantity <= 0: 14,466 rows (0.56% of total)
 - sales_value <= 0: 18,850 rows (0.73%)
 - Overlap:
-  - normal (qty>0, val>0):        2,576,815 rows
-  - both bad (qty<=0, val<=0):       14,399 rows — most likely returns
-  - val bad only (qty>0, val<=0):     4,451 rows — possibly free items
-  - qty bad only (qty<=0, val>0):        67 rows — very strange
+  - normal (qty>0, val>0): 2,576,815 rows
+  - both bad (qty<=0, val<=0): 14,399 rows, most likely returns or voided items
+  - val bad only (qty>0, val<=0): 4,451 rows, possibly free items
+  - qty bad only (qty<=0, val>0): 67 rows, very strange
 - Products 5978648 and 5978656 exist in product.csv with MANUFACTURER=1, BRAND='National', and every other field blank
 
-My answer: The 14,399 rows with both quantity<=0 and sales_value<=0 are almost certainly returns. The 4,451 rows with positive quantity but zero/negative sales_value are likely free items or data errors — flag on Day 3. The 67 rows with negative quantity but positive sales_value are strange; also flag.
+My answer: The 14,399 rows with both quantity<=0 and sales_value<=0 are most likely returns or voided items. The 4,451 rows with positive quantity but zero/negative sales_value are likely free items or data errors; flag on Day 3. The 67 rows with negative quantity but positive sales_value are strange; also flag.
 
-Two product IDs (5978648, 5978656) have minimal metadata in product.csv, consistent with coupon line items. Only checked those two — don't generalize to "everything above 5,000,000 is a coupon" without more evidence.
+Two product IDs (5978648, 5978656) have minimal metadata in product.csv, consistent with coupon line items. I only checked those two, so I won't generalize to "everything above 5,000,000 is a coupon" without more evidence.
 
 Open decision: for revenue summaries, report gross (all rows) or net (returns subtracted)? For elasticity and cannibalization, exclude returns and free items.
 
 ## Open questions
 
-- What counts as a "promo week" for a product? Price discounts live in transaction_data, display and mailer flags live in causal_data. Which do I use, or both?
+- What counts as a "promo" for a product-week? Candidates: (a) a price cut, measured from retail_disc in transaction_data; (b) being featured, i.e. a row in causal_data and which display/mailer codes matter; (c) both. Decide on Day 4.
 
-- Every row in causal_data has at least one nonzero marketing flag (0 rows with both display and mailer = '0'). So "any flag = promo" labels 100% of rows as promos. Need a stricter definition.
+- Does a missing causal_data row mean "not featured"? Test on Day 3.
 
 - Is coupon_disc already deducted inside sales_value? If not, my gross-price formula double-counts the coupon. Test on Day 3.
 
