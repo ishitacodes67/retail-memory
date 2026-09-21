@@ -41,7 +41,8 @@ The raw data is not redistributed in this repo. A download script will be added 
 ## Roadmap
 
 - [x] Week 0: repo scaffold, CI, README, living docs
-- [ ] Week 0 (remaining): requirements doc, dataset intake, schema notes
+- [x] Requirements doc
+- [ ] Week 0 (remaining): dataset intake, schema notes
 - [ ] Week 1: DuckDB, SQL, `get_sales_summary`
 - [ ] Week 2: elasticity (naive vs fixed), `recommend_markdown`, backtest
 - [ ] Week 3: rule-based router, Groq tool-calling agent, evals
