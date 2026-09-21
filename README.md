@@ -4,7 +4,7 @@
 
 An AI agent that tells you when a discount is working, and when it is quietly eating your own sales.
 
-> Status: in progress. Independent implementation, inspired by the reciprocate.you "Retail Memory" workshop.
+> Status: in progress. 
 
 ## The problem
 
