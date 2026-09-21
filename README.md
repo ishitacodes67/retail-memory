@@ -28,6 +28,18 @@ So the real questions are: did *profit* go up, and did the lift come from new sa
 
 The LLM never does math. It only chooses tools and explains their outputs. Every number comes from tested Python functions that return the same answer every time.
 
+## Quickstart
+
+Requires Python 3.10+ and the raw Dunnhumby CSVs placed in `data/raw/`.
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pip install -e .
+python -m retail_memory.data.load
+pytest
+
+The loader rebuilds `data/processed/retail.duckdb` from the raw CSVs every time it runs. Delete the file any time; the loader recreates it in a few minutes.
+
 ## Dataset
 
 Planned: **Dunnhumby "The Complete Journey"** — household-level grocery transactions with discount, coupon, and display fields per product, per store, per week. Public on Kaggle.

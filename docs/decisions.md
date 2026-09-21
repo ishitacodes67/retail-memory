@@ -34,3 +34,23 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Terms: dunnhumby provides the data for classroom and academic use. Raw data stays out of the repo, and I can't assume it may be redistributed in a deployed demo. In Week 5, re-check the terms; the fallback is a demo that ships only derived aggregates if allowed, or otherwise a recorded demo plus local run instructions.
   - Display and mailer placements were not randomly assigned, so this is observational data. Naive before/after comparisons will be biased, and every promo-effect estimate needs a design that handles that (baseline correction, difference-in-differences, placebo tests).
   - Revisit trigger: if product-level elasticity is too noisy at this household scale, first aggregate to sub-commodity level (product.csv has COMMODITY_DESC and SUB_COMMODITY_DESC), then to department if needed. Cost: recommendations then apply to a group of products, not one product. Set the noise threshold after the first elasticity run in Week 2, and keep household-level grain for cannibalization only if it is still workable.
+  
+---
+
+### D-002: A DuckDB file built by a script, not CSV queries
+- **Date:** 2026-09-21
+- **Context:** Tools and notebooks need to query 2.6M transaction rows and 36.8M causal rows repeatedly. Querying the raw CSVs every time would be slow and would repeat the same cleaning logic everywhere.
+- **Options considered:**
+  1. Query the raw CSVs directly with DuckDB's `read_csv` on every call.
+  2. Load everything into pandas once per session.
+  3. Build a single DuckDB file from the CSVs, and have all downstream code query that file.
+- **Decision:** Option 3, built by `python -m retail_memory.data.load`.
+- **Why:**
+  - One command rebuilds the database from raw CSVs, so the derived artifact always matches the source. Delete and rebuild any time.
+  - Queries are fast: DuckDB is columnar and the tables are indexed by scan order.
+  - Column names are normalized to lowercase on load, so downstream code never mixes `BASKET_ID` and `basket_id`.
+  - Code-like columns (`trans_time`, `display`, `mailer`) are forced to text so leading zeros survive and codes never become numbers.
+- **Trade-offs / what I'd revisit:**
+  - A few hundred MB of derived data sits on disk. Deleting it costs nothing; a rebuild takes a few minutes.
+  - Loading is a build step. If the CSVs change, the database must be rebuilt - there is no auto-sync. That is a deliberate choice: automatic sync would hide mismatches.
+  - The 36.8M-row causal table makes the rebuild slow. If it becomes painful, I could load causal as a view over the CSV instead of a table, at the cost of repeated scan time.
