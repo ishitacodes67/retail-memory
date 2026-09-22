@@ -75,3 +75,22 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - `coupon_disc` and `coupon_match_disc` are still reported separately in summaries as rebates the customer received, so the information isn't lost — just not folded into the price.
   - If a future decision needs list price (for example, to compute a discount % off shelf), revisit D-003, don't override it silently. 
     - `retail_disc > 0` appears in 36 rows out of 2.6M (0.0014%). 30 are floating-point noise on return rows; 6 are real small positives on normal rows, unexplained. The tools clip `retail_disc` to `min(retail_disc, 0)` before use and log the clipped-row count in output metadata.
+    
+---
+
+### D-004: Promo-week definition
+- **Date:** 2026-09-22
+- **Context:** Three downstream tools need a single answer to "was this product on promo this store this week?" The data offers three signals: a price discount (`retail_disc` in transactions), a display placement (`display` in causal), and a mailer placement (`mailer` in causal). Day 3 Test C showed that "has a causal row" is too loose (20% of all sold product-store-weeks, thousands of products flagged per store-week). A stricter rule is needed.
+- **Options considered:**
+  1. `retail_disc <> 0` in that week. Rejected: ~50% of rows have a discount. It flags half the data.
+  2. Any nonzero `display` or `mailer`. Rejected: 20% coverage and a single store-week can flag thousands of products at once, consistent with a weekly circular rather than a targeted promotion.
+  3. Discount depth (`1 - net_revenue / list_revenue`) above a threshold. Chosen.
+- **Decision:** A product is on promo in a store-week iff its volume-weighted discount depth is **>= 0.35**. The `is_featured` flag (any causal row that week) is kept as a secondary signal, reported separately, not used as the primary promo definition.
+- **Why:**
+  - 0.35 flags 13.4% of all product-store-weeks, matching the target "promo is the exception, not the norm."
+  - It aligns with p75 of the discounted-week distribution (0.367), so the cutoff means "deeper discount than 75% of weeks that had any discount at all." Defensible from the data, not chosen arbitrarily.
+  - Discount depth is a continuous measure of price cut, which is what elasticity needs. A binary flag alone would throw away the depth information.
+- **Trade-offs / what I'd revisit:**
+  - **Confound with display.** At 0.35, 186,199 of 316,372 promo weeks (59%) also had a display or mailer. Diff-in-diff cannot separate the price effect from the display effect on those. The 130,173 clean weeks are the primary sample for Week 4. This is a named limitation, not a reason to change the threshold today.
+  - The threshold is a design choice, not a data fact. If Week 2's elasticity estimates look too noisy or too sparse, revisit 0.30 or 0.25 to gain more weeks. Document the new value and the reason.
+  - `is_featured` is coarse: any causal row counts, including display codes like "In-Shelf" that may not be a real promotion. Not used as the primary flag for that reason.
