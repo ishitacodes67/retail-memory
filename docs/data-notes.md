@@ -93,8 +93,7 @@ above depends on this, so it does not block the project. coupon_disc + coupon_ma
 is reported separately as total_coupon_value, never folded into either price.
 
 retail_disc > 0 (36 of 2,595,732 rows, 0.0014%): 30 are floating-point noise on return-like
-rows (quantity <= 0); 6 are real small positive values on normal rows, unexplained, [one
-line on what the peek showed]. Rule: clip retail_disc to min(retail_disc, 0) before use;
+rows (quantity <= 0); 6 are real small positive values on normal rows, unexplained (6 households, 6 days, 6 products, weeks 54-74, no coupon involvement; likely data entry glitches). Rule: clip retail_disc to min(retail_disc, 0) before use;
 log the affected row count in tool output metadata.
 
 **Provisional list-price reconstruction:**
