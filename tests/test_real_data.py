@@ -27,3 +27,13 @@ def test_row_counts_match_data_notes(table: str):
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
         (count,) = con.sql(f"SELECT COUNT(*) FROM {table}").fetchone()
     assert count == EXPECTED_ROWS[table]
+    
+
+def test_promo_table_exists_and_is_reasonable():
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        n = con.sql("SELECT COUNT(*) FROM product_store_week").fetchone()[0]
+        promo_rate = con.sql(
+            "SELECT AVG(is_price_promo::INT) FROM product_store_week"
+        ).fetchone()[0]
+    assert n > 0
+    assert 0 < promo_rate < 0.5  # a promo should be a minority of weeks, not the norm
