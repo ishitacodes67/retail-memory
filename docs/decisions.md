@@ -94,3 +94,24 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - **Confound with display.** At 0.35, 186,199 of 316,372 promo weeks (59%) also had a display or mailer. Diff-in-diff cannot separate the price effect from the display effect on those. The 130,173 clean weeks are the primary sample for Week 4. This is a named limitation, not a reason to change the threshold today.
   - The threshold is a design choice, not a data fact. If Week 2's elasticity estimates look too noisy or too sparse, revisit 0.30 or 0.25 to gain more weeks. Document the new value and the reason.
   - `is_featured` is coarse: any causal row counts, including display codes like "In-Shelf" that may not be a real promotion. Not used as the primary flag for that reason.
+  
+---
+
+### D-005: Confidence rule and COUPON/MISC flag in get_sales_summary
+- **Date:** 2026-09-22
+- **Context:** `get_sales_summary` returns a summary number that callers may act on. Two failure modes make a number untrustworthy: (1) too little data to be meaningful, and (2) the product_id is a bookkeeping line that looks like a real product but isn't. Both need explicit handling, not silence.
+- **Options considered:**
+  1. Return a number with no confidence signal. Rejected: a caller can't tell whether to trust it.
+  2. Return only a number, with a separate helper to compute confidence. Rejected: easy to forget.
+  3. Return a confidence label plus explanatory notes on the same result. Chosen.
+- **Decision:**
+  - Confidence is "high" only when the window has at least 4 calendar weeks AND the product had sales in at least 4 distinct weeks. Otherwise, "low."
+  - If the product's `commodity_desc` is `COUPON/MISC ITEMS`, append a warning note to the result.
+- **Why:**
+  - **Two checks, not one.** The original requirement said "fewer than 4 weeks of data," which is ambiguous. A 3-week request is thin even when all 3 weeks had sales. A 30-week request where the product only sold in 2 weeks is also thin. Both are "low confidence." Using only one check would miss the other case.
+  - **Distinct weeks, not rows.** `product_store_week` is one row per product x store x week, so counting rows would count "100 stores sold it one week" as if it were 100 weeks of history. The confidence check counts distinct `week_no` values, which is calendar coverage.
+  - **COUPON/MISC flag.** Day 3 Test A showed that three of the top products by revenue were `COUPON/MISC ITEMS` bookkeeping lines. A caller asking for a summary of one of those IDs would get a plausible-looking revenue number and no warning. The flag turns a silent misdirection into a visible note.
+- **Trade-offs / what I'd revisit:**
+  - 4 weeks is a heuristic, not a derived number. If Week 2's elasticity model needs a tighter or looser rule, revisit it, but keep it documented here rather than changing it silently.
+  - "High confidence" does not mean the result is correct, only that there's enough data for a basic summary. It says nothing about causal claims, which need the diff-in-differences work in Week 4.
+  - The confidence field is a string ("high" / "low") rather than a numeric score. Simple and readable, but hard to threshold. If a downstream tool needs graded confidence, add a numeric field alongside rather than replacing this one.
