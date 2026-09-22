@@ -82,10 +82,20 @@ Result:
 
 My answer (hypothesis, to test on Day 3): All three discount columns are almost always zero or negative, so a discount reduces the price. A few positive retail_disc values exist (max +3.99); investigate on Day 3.
 
-**Working formula (from Day 3 investigation, Test B):**
-    net_unit_price = sales_value / quantity
+**Price formulas (Day 3 investigation):**
 
-`net_unit_price` is the amount the customer paid per unit and is what the tools use. It does not depend on whether `coupon_disc` sits inside `sales_value` or beside it.
+net_unit_price  = sales_value / quantity                    # what the customer actually paid
+list_unit_price = (sales_value - retail_disc) / quantity     # price before the retailer's own discount
+
+Whether coupon_disc is already netted into sales_value is UNRESOLVED (Test B: 63 groups,
+57% vs 43% win-count, 95% CI [45%, 70%] — not distinguishable from chance). Neither formula
+above depends on this, so it does not block the project. coupon_disc + coupon_match_disc
+is reported separately as total_coupon_value, never folded into either price.
+
+retail_disc > 0 (36 of 2,595,732 rows, 0.0014%): 30 are floating-point noise on return-like
+rows (quantity <= 0); 6 are real small positive values on normal rows, unexplained, [one
+line on what the peek showed]. Rule: clip retail_disc to min(retail_disc, 0) before use;
+log the affected row count in tool output metadata.
 
 **Provisional list-price reconstruction:**
     list_unit_price = (sales_value - retail_disc) / quantity
