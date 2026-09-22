@@ -265,7 +265,7 @@ This is what the customer actually paid per unit. It's unambiguous under either 
 | >=50% | 69,708 | 3.0% |
 
 **Chosen threshold: 0.35.**
-
+Baseline: **49.9%** of all product-store-weeks have any discount (`discount_depth > 0`). This confirms at week-grain what was previously only a row-grain claim. It's why the threshold must be well above zero — a "promo" defined as any discount would flag half the table.
 Two justifications:
 1. 13.4% coverage lands in the reviewer's target band of 5-15% - a promo is the exception, not the norm.
 2. It aligns with p75 of the discounted-week distribution (0.367). A 35% cutoff means "deeper discount than 75% of weeks that had any discount at all." Not a round number pulled from air.
