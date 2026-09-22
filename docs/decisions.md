@@ -68,8 +68,10 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 - **Why:**
   - Net unit price is what the customer actually paid per unit. It's the ground truth for demand response, which is what elasticity measures.
   - It does not depend on whether `coupon_disc` is already inside `sales_value`. That question is unresolved (Test B was ambiguous: 26 asis wins vs 35 added-back wins across 63 groups, with the two metrics disagreeing). The net formula sidesteps the ambiguity entirely.
-  - Tools that take price as an input (elasticity, margin calculation, markdown recommendation) want the price the customer faced, not a reconstructed shelf price.
+  - Tools that take price as an input (elasticity, margin calculation, markdown recommendation) want the price the customer faced, not a reconstructed shelf price. 
+   - The coupon-inside-or-separate question was deliberately left unresolved rather than forced. Test B produced genuinely ambiguous evidence (35 vs 26 win-count for "inside", 57%, not statistically distinguishable from chance; average-distance metric pointed the other way). Rather than guess, the design uses a formula that works under either hypothesis. Designing around an honest ambiguity beats a fabricated confirmation.
 - **Trade-offs / what I'd revisit:**
   - Cannot directly compare "shelf price" across coupon and non-coupon rows. If a future tool needs that, Test B has to be redone with tighter methodology (per-group ratios, larger n).
   - `coupon_disc` and `coupon_match_disc` are still reported separately in summaries as rebates the customer received, so the information isn't lost — just not folded into the price.
-  - If a future decision needs list price (for example, to compute a discount % off shelf), revisit D-003, don't override it silently.
+  - If a future decision needs list price (for example, to compute a discount % off shelf), revisit D-003, don't override it silently. 
+    - `retail_disc > 0` appears in 36 rows out of 2.6M (0.0014%). 30 are floating-point noise on return rows; 6 are real small positives on normal rows, unexplained. The tools clip `retail_disc` to `min(retail_disc, 0)` before use and log the clipped-row count in output metadata.
