@@ -7,9 +7,9 @@ What this project must do, and what it must not do. Written before implementatio
 ### FR1: get_sales_summary
 
 - **Inputs:** a product identifier and a time window (start week, end week).
-- **Output:** total units sold, total revenue, average price, and the count of weeks in that window that had a promo flag.
+- **Output:** total units, total revenue, average price, and the count of weeks in that window where `is_price_promo` is true (from `product_store_week`, defined as volume-weighted discount depth >= 0.35 in D-004), with `is_featured` reported separately.
 - **Failure behavior:** if the product does not exist, return a clear error naming the missing product. If the window has fewer than 4 weeks of data, return the summary but label it low confidence. If the product has no sales in the window, return zeros with a "no sales" note, not an empty result.
-- **Note:** exact definitions of "promo flag" and "price" are pinned in D-002/D-003 once decided.
+the number of weeks in that window where `is_price_promo` is true (from `product_store_week`, defined as volume-weighted discount depth >= 0.35 in D-004), with `is_featured` reported separately
 
 ### FR2: recommend_markdown
 
