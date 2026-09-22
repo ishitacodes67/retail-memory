@@ -82,7 +82,11 @@ Result:
 
 My answer (hypothesis, to test on Day 3): All three discount columns are almost always zero or negative, so a discount reduces the price. A few positive retail_disc values exist (max +3.99); investigate on Day 3.
 
-Tentative formula (hypothesis, not verified):
+**Confirmed formula (Day 3 investigation, Test B):**
+    list_unit_price = (sales_value - retail_disc) / quantity
+    net_unit_price  = sales_value / quantity
+
+`coupon_disc` and `coupon_match_disc` are separate rebates, NOT already inside `sales_value`. They are not subtracted when reconstructing list price.
 
 ```
 gross_value    = sales_value - retail_disc - coupon_disc - coupon_match_disc
@@ -181,16 +185,58 @@ Two product IDs (5978648, 5978656) have minimal metadata in product.csv, consist
 
 Open decision: for revenue summaries, report gross (all rows) or net (returns subtracted)? For elasticity and cannibalization, exclude returns and free items.
 
+
+## Day 3 investigation
+
+### Coupon double-counting (Test B)
+- Hypothesis: `coupon_disc` is already inside `sales_value` (so subtracting it would double-count).
+- SQL used: same product/store/day, retail_disc=0, compare three candidate price formulas.
+- Result:
+  | n_groups | avg_price_no_coupon | avg_price_with_coupon_asis | avg_price_with_coupon_added_back |
+  |---|---|---|---|
+  | 61 | 2.30 | 2.08 | 2.92 |
+- Conclusion: Hypothesis **rejected**. The as-is price (2.08) is closer to the no-coupon price (2.30) than the added-back price (2.92). `coupon_disc` is a separate rebate, not already inside `sales_value`. Do NOT subtract it when reconstructing list price.
+- Caveat: only 61 groups. Not conclusive on its own but the direction is clear.
+- **Corrected price formula:**
+list_unit_price = (sales_value - retail_disc) / quantity
+net_unit_price = sales_value / quantity
+
+### Causal data coverage (Test C)
+- SQL used: left join transactions to causal on (product, store, week); then top store-weeks by flagged-product count.
+- Result:
+- n_distinct_combos = 2,371,399
+- n_matched = 483,935 → **20.4%** of sold product-store-weeks have a causal row
+- Top store-week: 6,921 products flagged in store 369 week 63
+- Conclusion: Hypothesis **supported**. `causal_data` lists only notable/featured occasions. Most sold product-store-weeks have no row. But "has a causal row" would label ~20% of all product-store-weeks as promoted, which is too loose for a promo flag — thousands of items are flagged in a single store-week, consistent with weekly circulars rather than one-off promos. This is a design decision for Day 4, not a data fact.
+
+### Positive retail_disc (Test D)
+- SQL used: group positive retail_disc by whether quantity<=0.
+- Result: 36 rows total (30 return-like, 6 not). Min values are floating-point noise (~7e-18, ~1e-16).
+- Conclusion: Positive `retail_disc` is a rounding artifact, not a real positive discount. Treat `retail_disc <= 0` as invariant.
+
+### Odd rows by department (Test E)
+- SQL used: group odd rows by product.department.
+- Result:
+- qty>0 & sales_value<=0: top departments GROCERY (1198), MEAT-PCKGD (938), DRUG GM (662). Spread across 17 departments.
+- qty<=0 & sales_value>0: only 67 rows, top GROCERY (24), PRODUCE (19), DRUG GM (16). Spread across 7 departments.
+- Conclusion: No concentration in any single department, so these are **not** coupon bookkeeping lines. Treat them as returns (qty<=0) or free items / data errors (qty>0 & value<=0). Exclude from aggregates.
+
+### Store concentration (Test F)
+- Anchor product: 1029743 (FLUID MILK PRODUCTS)
+- SQL used: per-store row counts; min/max/avg/median; same for the anchor product.
+- Result:
+- All stores: min 1, max 75,573, avg 4,460, **median 30** rows.
+- Anchor product 1029743: min 2, max 420, avg 125, **median 109** transactions per store.
+- Conclusion: **Sparsity confirmed.** Median store has only 30 rows total in 2.6M. Even the top-selling product has ~420 transactions in its busiest store across 102 weeks, about 4 per week. Store-level difference-in-differences on individual stores will be impossible; Week 4 will need store grouping (e.g., by size or region), and product-level elasticity may need sub-commodity aggregation. This matches the revisit trigger from D-001.
+
+### Bonus: COUPON/MISC ITEMS contamination
+- Test A's top 3 "products" by revenue were all `COUPON/MISC ITEMS` (6534178, 6533889, 6534166). These are bookkeeping rows, not real products. Any revenue ranking or product-level aggregation must exclude `commodity_desc = 'COUPON/MISC ITEMS'`.
+
 ## Open questions
 
 - What counts as a "promo" for a product-week? Candidates: (a) a price cut, measured from retail_disc in transaction_data; (b) being featured, i.e. a row in causal_data and which display/mailer codes matter; (c) both. Decide on Day 4.
 
 - Does a missing causal_data row mean "not featured"? Test on Day 3.
 
-- Is coupon_disc already deducted inside sales_value? If not, my gross-price formula double-counts the coupon. Test on Day 3.
-
-- Why does retail_disc have a few positive values (max +3.99)? Investigate on Day 3.
-
-- What are the 4,451 rows with qty>0 and val<=0, and the 67 rows with qty<=0 and val>0?
 
 - For revenue summaries: gross (all rows) or net (returns subtracted)?
