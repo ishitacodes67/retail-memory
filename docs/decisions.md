@@ -54,3 +54,22 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - A few hundred MB of derived data sits on disk. Deleting it costs nothing; a rebuild takes a few minutes.
   - Loading is a build step. If the CSVs change, the database must be rebuilt - there is no auto-sync. That is a deliberate choice: automatic sync would hide mismatches.
   - The 36.8M-row causal table makes the rebuild slow. If it becomes painful, I could load causal as a view over the CSV instead of a table, at the cost of repeated scan time.
+
+---
+
+### D-003: Net unit price as the primary price field
+- **Date:** 2026-09-22
+- **Context:** Every tool needs a "price" per transaction, and the raw schema offers several candidates: `sales_value / quantity`, `(sales_value - retail_disc) / quantity`, and versions that also add back `coupon_disc` and `coupon_match_disc`. Pick one canonical price that all tools use, so results are consistent.
+- **Options considered:**
+  1. Net unit price: `sales_value / quantity`. What the customer paid per unit.
+  2. List unit price: `(sales_value - retail_disc) / quantity`. Reconstructs shelf price, ignoring coupons.
+  3. Full list price: subtract all three discount columns, on the theory that all are inside `sales_value`.
+- **Decision:** Use net unit price (`sales_value / quantity`) as the primary price for all tools. Keep the list-price formula provisional and unused unless a tool specifically needs shelf-price comparison.
+- **Why:**
+  - Net unit price is what the customer actually paid per unit. It's the ground truth for demand response, which is what elasticity measures.
+  - It does not depend on whether `coupon_disc` is already inside `sales_value`. That question is unresolved (Test B was ambiguous: 26 asis wins vs 35 added-back wins across 63 groups, with the two metrics disagreeing). The net formula sidesteps the ambiguity entirely.
+  - Tools that take price as an input (elasticity, margin calculation, markdown recommendation) want the price the customer faced, not a reconstructed shelf price.
+- **Trade-offs / what I'd revisit:**
+  - Cannot directly compare "shelf price" across coupon and non-coupon rows. If a future tool needs that, Test B has to be redone with tighter methodology (per-group ratios, larger n).
+  - `coupon_disc` and `coupon_match_disc` are still reported separately in summaries as rebates the customer received, so the information isn't lost — just not folded into the price.
+  - If a future decision needs list price (for example, to compute a discount % off shelf), revisit D-003, don't override it silently.
