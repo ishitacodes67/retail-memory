@@ -9,6 +9,7 @@ What this project must do, and what it must not do. Written before implementatio
 - **Inputs:** a product identifier and a time window (start week, end week).
 - **Output:** total units sold, total revenue, average price, and the count of weeks in that window that had a promo flag.
 - **Failure behavior:** if the product does not exist, return a clear error naming the missing product. If the window has fewer than 4 weeks of data, return the summary but label it low confidence. If the product has no sales in the window, return zeros with a "no sales" note, not an empty result.
+- **Note:** exact definitions of "promo flag" and "price" are pinned in D-002/D-003 once decided.
 
 ### FR2: recommend_markdown
 
@@ -19,9 +20,9 @@ What this project must do, and what it must not do. Written before implementatio
 ### FR3: detect_cannibalization
 
 - **Inputs:** a promoted product and a candidate neighbor product.
-- **Output:** the estimated sales shift on the neighbor during the promo, a confidence interval, and whether the effect is statistically distinguishable from zero.
+- **Output:** the estimated shift in **units of the neighbor product** during the promo, a confidence interval, and whether the effect is statistically distinguishable from zero.
 - **Failure behavior:** if the neighbor's pre-promo sales don't trend similarly to the promoted product, refuse and explain that the control is unsuitable. If there are fewer than 4 pre-promo weeks, return "insufficient data". If both products were promoted simultaneously, refuse — the comparison is not valid.
-
+- **Note:** an earlier naive version (before/after only) is built and deliberately shown to fail in `notebooks/`, before this final contract is implemented.
 ### FR4: Agent
 
 - **Does:** routes a natural-language question to one of the three tools, calls the tool, and explains the result in plain language using only numbers returned by the tool.
@@ -79,6 +80,6 @@ What this project must do, and what it must not do. Written before implementatio
 - All three tools have passing unit tests, including every failure case listed above.
 - The agent answers at least 80% of eval questions with the correct tool call.
 - The naive "before vs. during" cannibalization detector fails on the placebo test; the diff-in-diff version passes.
-- Backtest error (MAPE on held-out, later-in-time promos): target under 20%, provisional. If the data does not support that, report the actual number honestly.
+- Backtest error (MAPE on held-out, later-in-time promos): target under 20%, provisional, measured at the discount depth actually applied. If the data does not support that, report the actual number honestly.
 - Every NFR is measured and the result written into the README's Results section. No NFR stays "TBD" at the end.
 - The final demo runs end-to-end with a live agent, a FastAPI backend, and a Streamlit UI.
