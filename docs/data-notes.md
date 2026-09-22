@@ -241,6 +241,51 @@ This is what the customer actually paid per unit. It's unambiguous under either 
 ### Bonus: COUPON/MISC ITEMS contamination
 - Test A's top 3 "products" by revenue were all `COUPON/MISC ITEMS` (6534178, 6533889, 6534166). These are bookkeeping rows, not real products. Any revenue ranking or product-level aggregation must exclude `commodity_desc = 'COUPON/MISC ITEMS'`.
 
+## Day 4 investigation: promo-week threshold
+
+### Distribution of discount depth (among weeks with any discount)
+| Percentile | Discount depth |
+|---|---|
+| p25 | 15.5% |
+| p50 | 24.4% |
+| p75 | 36.7% |
+| p90 | 46.7% |
+
+### Coverage at candidate thresholds
+| Threshold | Flagged weeks | % of 2,355,746 |
+|---|---:|---:|
+| >=5% | 1,148,885 | 48.8% |
+| >=10% | 1,029,733 | 43.7% |
+| >=15% | 893,100 | 37.9% |
+| >=20% | 725,960 | 30.8% |
+| >=25% | 565,656 | 24.0% |
+| >=30% | 446,384 | 19.0% |
+| **>=35%** | **316,372** | **13.4%** |
+| >=40% | 227,578 | 9.7% |
+| >=50% | 69,708 | 3.0% |
+
+**Chosen threshold: 0.35.**
+
+Two justifications:
+1. 13.4% coverage lands in the reviewer's target band of 5-15% - a promo is the exception, not the norm.
+2. It aligns with p75 of the discounted-week distribution (0.367). A 35% cutoff means "deeper discount than 75% of weeks that had any discount at all." Not a round number pulled from air.
+
+Note: at 0.05 the threshold flags ~half of all weeks, because this is a high-low pricing retailer where discounts are common. The threshold must be well above the median to be meaningful.
+
+### Confound cross-tab at threshold 0.35
+| is_price_promo | is_featured | Count | % of all |
+|---|---|---:|---:|
+| false | false | 1,744,362 | 74.0% |
+| false | true | 295,012 | 12.5% |
+| true | true | 186,199 | 7.9% |
+| true | false | 130,173 | 5.5% |
+
+Of 316,372 price-promo weeks:
+- **130,173 (41%) clean** - price cut only, no feature
+- **186,199 (59%) confounded** - price cut and feature together
+
+**Limitation carried into Week 4:** on 59% of promo weeks, a display or mailer was also present. Diff-in-diff cannot cleanly separate the price effect from the display effect on those weeks. The 130,173 clean weeks become the primary sample for cannibalization work.
+
 ## Open questions
 
 - What counts as a "promo" for a product-week? Candidates: (a) a price cut, measured from retail_disc in transaction_data; (b) being featured, i.e. a row in causal_data and which display/mailer codes matter; (c) both. Decide on Day 4.
