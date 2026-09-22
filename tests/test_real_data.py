@@ -37,3 +37,12 @@ def test_promo_table_exists_and_is_reasonable():
         ).fetchone()[0]
     assert n > 0
     assert 0 < promo_rate < 0.5  # a promo should be a minority of weeks, not the norm
+    
+
+def test_discount_depth_is_always_in_valid_range():
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        lo, hi = con.sql(
+            "SELECT MIN(discount_depth), MAX(discount_depth) FROM product_store_week"
+        ).fetchone()
+    assert lo >= 0
+    assert hi < 1

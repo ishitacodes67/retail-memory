@@ -88,7 +88,7 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 - **Decision:** A product is on promo in a store-week iff its volume-weighted discount depth is **>= 0.35**. The `is_featured` flag (any causal row that week) is kept as a secondary signal, reported separately, not used as the primary promo definition.
 - **Why:**
   - 0.35 flags 13.4% of all product-store-weeks, matching the target "promo is the exception, not the norm."
-  - It aligns with p75 of the discounted-week distribution (0.367), so the cutoff means "deeper discount than 75% of weeks that had any discount at all." Defensible from the data, not chosen arbitrarily.
+  - It sits close to the 75th percentile of the discounted-week distribution (p75 = 0.367). A clean round number just below that cutoff flags the top 26.9% of discounted weeks — clean and interview-friendly, and defensible from the data rather than pulled from air.
   - Discount depth is a continuous measure of price cut, which is what elasticity needs. A binary flag alone would throw away the depth information.
 - **Trade-offs / what I'd revisit:**
   - **Confound with display.** At 0.35, 186,199 of 316,372 promo weeks (59%) also had a display or mailer. Diff-in-diff cannot separate the price effect from the display effect on those. The 130,173 clean weeks are the primary sample for Week 4. This is a named limitation, not a reason to change the threshold today.
