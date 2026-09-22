@@ -82,19 +82,15 @@ Result:
 
 My answer (hypothesis, to test on Day 3): All three discount columns are almost always zero or negative, so a discount reduces the price. A few positive retail_disc values exist (max +3.99); investigate on Day 3.
 
-**Confirmed formula (Day 3 investigation, Test B):**
+**Working formula (from Day 3 investigation, Test B):**
+    net_unit_price = sales_value / quantity
+
+`net_unit_price` is the amount the customer paid per unit and is what the tools use. It does not depend on whether `coupon_disc` sits inside `sales_value` or beside it.
+
+**Provisional list-price reconstruction:**
     list_unit_price = (sales_value - retail_disc) / quantity
-    net_unit_price  = sales_value / quantity
 
-`coupon_disc` and `coupon_match_disc` are separate rebates, NOT already inside `sales_value`. They are not subtracted when reconstructing list price.
-
-```
-gross_value    = sales_value - retail_disc - coupon_disc - coupon_match_disc
-net_value      = sales_value
-net_unit_price = net_value / quantity
-```
-
-Because discounts are negative, subtracting them from sales_value reconstructs the pre-discount gross. KEY UNKNOWN: whether coupon_disc is already inside sales_value. If it is, the formula double-counts. Test on Day 3 against known coupon redemptions.
+Whether `coupon_disc` must also be added back is unresolved (Test B was ambiguous). Revisit only if a tool needs shelf-price comparison across coupon and non-coupon rows.
 
 ## Q5. What is causal_data?
 
@@ -190,16 +186,15 @@ Open decision: for revenue summaries, report gross (all rows) or net (returns su
 
 ### Coupon double-counting (Test B)
 - Hypothesis: `coupon_disc` is already inside `sales_value` (so subtracting it would double-count).
-- SQL used: same product/store/day, retail_disc=0, compare three candidate price formulas.
-- Result:
-  | n_groups | avg_price_no_coupon | avg_price_with_coupon_asis | avg_price_with_coupon_added_back |
-  |---|---|---|---|
-  | 61 | 2.30 | 2.08 | 2.92 |
-- Conclusion: Hypothesis **rejected**. The as-is price (2.08) is closer to the no-coupon price (2.30) than the added-back price (2.92). `coupon_disc` is a separate rebate, not already inside `sales_value`. Do NOT subtract it when reconstructing list price.
-- Caveat: only 61 groups. Not conclusive on its own but the direction is clear.
-- **Corrected price formula:**
-list_unit_price = (sales_value - retail_disc) / quantity
-net_unit_price = sales_value / quantity
+- SQL used: same product/store/day, retail_disc=0, compare three candidate prices and count per-group wins.
+- Result (corrected, win-count version):
+  | n_groups | asis_wins | added_back_wins | avg_diff_asis | avg_diff_added_back |
+  |---|---|---|---|---|
+  | 63 | 26 | 35 | 0.224 | 0.618 |
+- Conclusion: **Ambiguous.** Win-count gives a slight edge to "coupon inside sales_value" (35/61). Average-distance gives an edge to "coupon separate" (0.22 vs 0.62). The two metrics disagree, which means neither story dominates across all 63 groups.
+- **Decision for the tools:** use the formula that doesn't depend on this question: net_unit_price = sales_value / quantity
+This is what the customer actually paid per unit. It's unambiguous under either hypothesis and drives all downstream tools.
+- **Provisional only:** list-price reconstruction `(sales_value - retail_disc) / quantity` may still need `coupon_disc` added back. Marked provisional — revisit if a tool actually needs it. No tool does today.
 
 ### Causal data coverage (Test C)
 - SQL used: left join transactions to causal on (product, store, week); then top store-weeks by flagged-product count.
@@ -210,9 +205,13 @@ net_unit_price = sales_value / quantity
 - Conclusion: Hypothesis **supported**. `causal_data` lists only notable/featured occasions. Most sold product-store-weeks have no row. But "has a causal row" would label ~20% of all product-store-weeks as promoted, which is too loose for a promo flag — thousands of items are flagged in a single store-week, consistent with weekly circulars rather than one-off promos. This is a design decision for Day 4, not a data fact.
 
 ### Positive retail_disc (Test D)
-- SQL used: group positive retail_disc by whether quantity<=0.
-- Result: 36 rows total (30 return-like, 6 not). Min values are floating-point noise (~7e-18, ~1e-16).
-- Conclusion: Positive `retail_disc` is a rounding artifact, not a real positive discount. Treat `retail_disc <= 0` as invariant.
+- SQL used: group positive retail_disc by whether quantity<=0, report count/min/max.
+- Result:
+  | is_return_like | count | min | max |
+  |---|---|---|---|
+  | false | 6 | ~0 (1.1e-16) | **+3.99** |
+  | true | 30 | ~0 (6.9e-18) | +2.09 |
+- Conclusion: 30 of 36 rows are return-like (quantity <= 0). Those are consistent with a reversed discount. The remaining 6 rows with quantity > 0 include the +3.99 max. That value is a real positive discount, not floating-point noise, and it is not attached to a return. It is unexplained and stays flagged as an outlier. `retail_disc` is effectively invariant at `<= 0` for aggregate work, but "invariant" is a working assumption, not a theorem.
 
 ### Odd rows by department (Test E)
 - SQL used: group odd rows by product.department.
@@ -228,6 +227,7 @@ net_unit_price = sales_value / quantity
 - All stores: min 1, max 75,573, avg 4,460, **median 30** rows.
 - Anchor product 1029743: min 2, max 420, avg 125, **median 109** transactions per store.
 - Conclusion: **Sparsity confirmed.** Median store has only 30 rows total in 2.6M. Even the top-selling product has ~420 transactions in its busiest store across 102 weeks, about 4 per week. Store-level difference-in-differences on individual stores will be impossible; Week 4 will need store grouping (e.g., by size or region), and product-level elasticity may need sub-commodity aggregation. This matches the revisit trigger from D-001.
+- **Caveat on comparing the two medians:** the "all stores" median (30 rows) is computed across all 582 stores. The anchor-product median (109) is computed only across stores where that product ever sold. Different populations. The 109 being higher than 30 is expected, not a contradiction.
 
 ### Bonus: COUPON/MISC ITEMS contamination
 - Test A's top 3 "products" by revenue were all `COUPON/MISC ITEMS` (6534178, 6533889, 6534166). These are bookkeeping rows, not real products. Any revenue ranking or product-level aggregation must exclude `commodity_desc = 'COUPON/MISC ITEMS'`.
