@@ -16,7 +16,7 @@ def con():
             product_id BIGINT, week_no BIGINT,
             total_quantity BIGINT, net_revenue DOUBLE, list_revenue DOUBLE,
             n_transactions BIGINT, discount_depth DOUBLE,
-            is_price_promo BOOLEAN, is_featured BOOLEAN)"""
+            is_price_promo_any_store BOOLEAN, is_featured BOOLEAN)"""
     )
     connection.executemany("INSERT INTO transactions VALUES (?,?)", [(1, 1), (1, 10)])
     connection.execute("INSERT INTO product VALUES (100, 'FLUID MILK PRODUCTS')")

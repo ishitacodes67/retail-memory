@@ -89,10 +89,12 @@ def build_product_week_table(
     Promo and feature flags are defined at the STORE level first, then
     aggregated with ANY: a product is "on promo this week" if at least one store
     had discount_depth >= threshold for it that week. This preserves the
-    store-level threshold (D-004) instead of re-applying it to a volume-weighted
-    average across all stores, which would dilute the signal -- for a product
-    sold at full price in most stores and promoted in a few, the aggregate depth
-    falls below the threshold and the promo is lost.
+    store-level threshold instead of re-applying it to a volume-weighted
+    average across all stores, which would dilute the signal.
+
+    The flag is named `is_price_promo_any_store` to make the ANY-store semantics
+    visible. `product_store_week.is_price_promo` remains the per-store flag and
+    is the primary definition for Week 4 cannibalization work (D-004).
 
     The `discount_depth` column here is still the aggregate across stores, kept
     for reference. It is NOT the value used for the promo flag. Anything that
@@ -129,7 +131,7 @@ def build_product_week_table(
         )
         SELECT
             w.*,
-            COALESCE(f.any_price_promo, 0) = 1 AS is_price_promo,
+            COALESCE(f.any_price_promo, 0) = 1 AS is_price_promo_any_store,
             COALESCE(f.any_featured, 0) = 1 AS is_featured
         FROM weekly w
         LEFT JOIN store_flags f

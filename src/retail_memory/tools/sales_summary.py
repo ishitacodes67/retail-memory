@@ -20,6 +20,12 @@ class SalesSummary:
     Source grain: this reads `product_week`, which is one row per product per
     week. So the `n_*` counts below are distinct calendar-week counts, not
     store-week counts. See D-006 for why that distinction matters.
+
+    The `n_distinct_promo_weeks` field counts weeks where
+    `is_price_promo_any_store` was true -- i.e. at least one store had a
+    discount depth >= 0.35 that week. See D-006 for why the flag is named that
+    way, and why `product_store_week.is_price_promo` (per-store) is the
+    authoritative flag for Week 4 cannibalization.
     """
 
     product_id: int
@@ -77,7 +83,7 @@ def get_sales_summary(
     total_units, total_revenue, n_weeks, n_promo, n_featured = con.sql(
         """
         SELECT SUM(total_quantity), SUM(net_revenue), COUNT(*),
-               SUM(is_price_promo::INT), SUM(is_featured::INT)
+               SUM(is_price_promo_any_store::INT), SUM(is_featured::INT)
         FROM product_week
         WHERE product_id = ? AND week_no BETWEEN ? AND ?
         """,

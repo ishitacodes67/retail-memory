@@ -27,7 +27,7 @@ def test_row_counts_match_data_notes(table: str):
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
         (count,) = con.sql(f"SELECT COUNT(*) FROM {table}").fetchone()
     assert count == EXPECTED_ROWS[table]
-    
+
 
 def test_promo_table_exists_and_is_reasonable():
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
@@ -37,7 +37,7 @@ def test_promo_table_exists_and_is_reasonable():
         ).fetchone()[0]
     assert n > 0
     assert 0 < promo_rate < 0.5  # a promo should be a minority of weeks, not the norm
-    
+
 
 def test_discount_depth_is_always_in_valid_range():
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
@@ -46,3 +46,19 @@ def test_discount_depth_is_always_in_valid_range():
         ).fetchone()
     assert lo >= 0
     assert hi < 1
+
+
+def test_any_store_flag_bound_holds():
+    """Permanent guard for the D-006 rename.
+
+    If is_price_promo_any_store means "at least one store's depth >= 0.35", then
+    every row flagged False must have its volume-weighted aggregate depth below
+    0.35, because a weighted average cannot exceed its largest input. If this
+    ever fails, the flag and the threshold have drifted apart.
+    """
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        max_when_false = con.sql(
+            "SELECT MAX(discount_depth) FROM product_week "
+            "WHERE NOT is_price_promo_any_store"
+        ).fetchone()[0]
+    assert max_when_false < 0.35
