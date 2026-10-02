@@ -141,3 +141,21 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 - **Trade-offs / what I'd revisit:**
   - `product_week.discount_depth` is still the volume-weighted aggregate across stores, kept for reference. It is NOT the value used for the promo flag. A reader who does not know this could re-apply the threshold and get the wrong answer again. The column docstring calls this out.
   - `product_week.is_featured` uses `MAX` across stores, so "featured" means "any store featured it." This is a looser definition than store-level featuring, and it matters if Week 4 wants store-specific treatment. For summaries it is the right grain; for causal work, read from `product_store_week`.
+- **Addendum (2026-10-02): flag rename and bound test.**
+  - The `product_week` flag originally named `is_price_promo` was renamed to
+    `is_price_promo_any_store`. Reason: at product-week grain, the flag means
+    "at least one store cleared the threshold," but the column sat next to
+    `discount_depth`, which is the volume-weighted average across all stores.
+    Two different quantities, similar names, easy to conflate. A week with 5 of
+    40 stores promoting gets flagged True while the aggregate depth sits around
+    0.15 -- the flag and the depth disagree by construction, not by bug.
+  - **Authoritative sources:**
+    - `product_week.is_price_promo_any_store` -- for screening candidate
+      products only (Day 6 elasticity work). Loose definition: any-store.
+    - `product_store_week.is_price_promo` -- the per-store-week flag, the
+      primary definition for Week 4 cannibalization (D-004). Authoritative.
+  - **Bound test added** (`test_any_store_flag_bound_holds` in
+    `tests/test_real_data.py`): every row flagged False must have aggregate
+    discount_depth < 0.35, because a weighted average cannot exceed its largest
+    input. `max_depth_when_not = 0.3499` confirms this empirically. The test
+    locks the property in so any future drift is caught by CI.
