@@ -1,4 +1,4 @@
-"""Tests for get_sales_summary (FR1), using a small synthetic product_store_week."""
+"""Tests for get_sales_summary (FR1), using a small synthetic product_week."""
 
 import duckdb
 import pytest
@@ -12,8 +12,8 @@ def con():
     connection.execute("CREATE TABLE product (product_id BIGINT, commodity_desc VARCHAR)")
     connection.execute("CREATE TABLE transactions (product_id BIGINT, week_no BIGINT)")
     connection.execute(
-        """CREATE TABLE product_store_week (
-            product_id BIGINT, store_id BIGINT, week_no BIGINT,
+        """CREATE TABLE product_week (
+            product_id BIGINT, week_no BIGINT,
             total_quantity BIGINT, net_revenue DOUBLE, list_revenue DOUBLE,
             n_transactions BIGINT, discount_depth DOUBLE,
             is_price_promo BOOLEAN, is_featured BOOLEAN)"""
@@ -23,15 +23,15 @@ def con():
     connection.execute("INSERT INTO product VALUES (200, 'COUPON/MISC ITEMS')")
     connection.execute("INSERT INTO product VALUES (300, 'FLUID MILK PRODUCTS')")
     rows = [
-        (100, 1, 3, 10, 20.0, 20.0, 5, 0.0, False, False),
-        (100, 1, 4, 10, 16.0, 20.0, 5, 0.2, True, False),
-        (100, 1, 5, 10, 20.0, 20.0, 5, 0.0, False, True),
-        (100, 1, 6, 10, 15.0, 20.0, 5, 0.25, True, True),
-        (100, 1, 7, 10, 20.0, 20.0, 5, 0.0, False, False),
-        (200, 1, 5, 3, 9.0, 9.0, 3, 0.0, False, False),
+        (100, 3, 10, 20.0, 20.0, 5, 0.0, False, False),
+        (100, 4, 10, 16.0, 20.0, 5, 0.2, True, False),
+        (100, 5, 10, 20.0, 20.0, 5, 0.0, False, True),
+        (100, 6, 10, 15.0, 20.0, 5, 0.25, True, True),
+        (100, 7, 10, 20.0, 20.0, 5, 0.0, False, False),
+        (200, 5, 3, 9.0, 9.0, 3, 0.0, False, False),
     ]
     connection.executemany(
-        "INSERT INTO product_store_week VALUES (?,?,?,?,?,?,?,?,?,?)", rows
+        "INSERT INTO product_week VALUES (?,?,?,?,?,?,?,?,?)", rows
     )
     yield connection
     connection.close()
@@ -42,9 +42,9 @@ def test_normal_full_data_is_high_confidence(con):
     assert s.total_units == 50
     assert s.total_revenue == pytest.approx(91.0)
     assert s.average_price == pytest.approx(1.82)
-    assert s.n_product_store_weeks == 5
     assert s.n_distinct_weeks_with_sales == 5
-    assert s.n_promo_product_store_weeks == 2
+    assert s.n_distinct_promo_weeks == 2
+    assert s.n_distinct_featured_weeks == 2
     assert s.confidence == "high"
     assert s.notes == []
 
@@ -85,4 +85,12 @@ def test_coupon_misc_product_is_flagged(con):
 def test_short_calendar_window_is_low_confidence_even_if_fully_sold(con):
     s = get_sales_summary(con, 100, 3, 5)
     assert s.n_distinct_weeks_with_sales == 3  # all 3 calendar weeks had sales
-    assert s.confidence == "low"      # but the window itself is < 4 weeks
+    assert s.confidence == "low"               # but the window itself is < 4 weeks
+
+
+def test_week_count_never_exceeds_calendar_window(con):
+    # Permanent guard against the D-006 bug: distinct weeks can never exceed
+    # the number of calendar weeks in the requested window, no matter how many
+    # stores sold the product.
+    s = get_sales_summary(con, 100, 1, 10)
+    assert s.n_distinct_weeks_with_sales <= (s.end_week - s.start_week + 1)

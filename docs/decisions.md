@@ -115,3 +115,29 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - 4 weeks is a heuristic, not a derived number. If Week 2's elasticity model needs a tighter or looser rule, revisit it, but keep it documented here rather than changing it silently.
   - "High confidence" does not mean the result is correct, only that there's enough data for a basic summary. It says nothing about causal claims, which need the diff-in-differences work in Week 4.
   - The confidence field is a string ("high" / "low") rather than a numeric score. Simple and readable, but hard to threshold. If a downstream tool needs graded confidence, add a numeric field alongside rather than replacing this one.
+
+---
+
+### D-006: get_sales_summary counted store-weeks as weeks; product_week added
+- **Date:** 2026-10-02
+- **Context:** `get_sales_summary` returned `n_weeks_with_sales`, `n_promo_weeks`, and `n_featured_weeks`. These were computed as `COUNT(*)` and `SUM(is_price_promo::INT)` over `product_store_week`, which is one row per product x store x week. The field names claimed "weeks." The values were store-week counts. For any product sold in more than one store, the number was inflated by roughly the store count.
+- **Options considered:**
+  1. Rename the fields to match what they actually counted (store-weeks). Rejected: callers want calendar-week counts, not store-week counts.
+  2. Compute `COUNT(DISTINCT week_no)` on `product_store_week` for the summary, and leave the table alone. Rejected: the same trap stays available for the next caller.
+  3. Build a `product_week` table (one row per product per week, aggregated across stores) and read summaries from that. Chosen.
+- **Decision:** Add `product_week` to `retail_memory.data.promo`, and change `get_sales_summary` to read from it. Rename the affected fields to `n_distinct_weeks_with_sales`, `n_distinct_promo_weeks`, `n_distinct_featured_weeks`. `product_store_week` remains the store-level table for Week 4 cannibalization.
+- **Why:**
+  - `COUNT(*)` over `product_store_week` silently counts store-weeks. Nothing in the code or the field name says so. A field named `n_weeks_with_sales` invites exactly this mistake.
+  - Having a dedicated `product_week` table makes the "true week count" the default for summaries, and the store-level table becomes a deliberate choice (for diff-in-diff work), not the accidental default.
+  - Renaming the fields closes the trap: `n_distinct_weeks_*` cannot be misread as anything but distinct calendar weeks.
+- **Measured impact of the bug (anchor product 1029743, fluid milk):**
+  - Buggy: 62 (`SUM(is_price_promo::INT)` over `product_store_week`)
+  - Fixed: 6 (same sum over `product_week`)
+  - Stores that ever sold it: 115
+  - Distinct weeks with any store promoting: 6 (weeks 5, 11, 18, 23, 29, 57)
+  - Inflation factor: ~10x. Small number of promo weeks; each was promoted across many stores at once, so the store-week count looked much larger.
+- **A second bug caught during the fix:** the first version of `product_week` recomputed `discount_depth` at the aggregate grain and re-applied the threshold. For the anchor product this produced **0** promo weeks, because the volume-weighted average across all 115 stores fell below 0.35 (max store depth in those weeks was 0.38-0.44, aggregate was 0.26-0.34). The threshold was calibrated at the store grain. Re-applying it at a coarser grain diluted the signal.
+- **Correct definition, now in code:** `product_week.is_price_promo` is `MAX(is_price_promo)` over the stores selling that product that week. "On promo this week" means "on promo in any store this week." Same for `is_featured`. This preserves the store-level threshold and matches how a manager would answer the question.
+- **Trade-offs / what I'd revisit:**
+  - `product_week.discount_depth` is still the volume-weighted aggregate across stores, kept for reference. It is NOT the value used for the promo flag. A reader who does not know this could re-apply the threshold and get the wrong answer again. The column docstring calls this out.
+  - `product_week.is_featured` uses `MAX` across stores, so "featured" means "any store featured it." This is a looser definition than store-level featuring, and it matters if Week 4 wants store-specific treatment. For summaries it is the right grain; for causal work, read from `product_store_week`.
