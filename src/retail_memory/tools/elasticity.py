@@ -62,8 +62,8 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
     if _quantity_is_degenerate(con, product_id):
         notes.append(
             f"Over {QUANTITY_DEGENERATE_THRESHOLD:.0%} of transactions have quantity=1 "
-            f"(see D-008, the banana case). Quantity is not a meaningful unit count for "
-            f"this product; refusing to estimate."
+            f"(see D-008). Quantity is not a meaningful unit count for "
+            f"refusing to estimate."
         )
         return ElasticityEstimate(
             product_id, "refused", None, None, None, "insufficient_data", 0, None, notes
