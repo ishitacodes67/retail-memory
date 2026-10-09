@@ -195,3 +195,45 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Confidence is currently binary ("high" if CI excludes zero, "low" otherwise).
     A numeric score would be more expressive but harder to threshold. Revisit
     if a downstream tool needs gradations.
+    
+---
+
+### D-010: recommend_markdown pricing formula and refusal logic
+- **Date:** 2026-10-09
+- **Context:** Given an elasticity estimate and an assumed margin, recommend a discount
+  depth that maximizes predicted profit, or refuse to recommend.
+- **The economics.** Under constant-elasticity demand, the profit-maximizing margin is
+  `1/|e|` (the Lerner inverse). Two cases:
+  - If `|e| <= 1` (inelastic), no finite discount improves profit. Refuse with
+    `no_discount_indicated`.
+  - If `|e| > 1` (elastic), compute `optimal_margin = 1/|e|`. If the current margin
+    is already at or below that, the product is priced favorably; no discount indicated.
+    If the current margin exceeds it, the product is overpriced relative to what
+    elasticity supports, and the recommended price is `cost / (1 - optimal_margin)`.
+- **Decision:** Implement this formula in `recommend_markdown`, with three refusals:
+  1. If `estimate_elasticity` refused (`method == "refused"`).
+  2. If `confidence == "low"` (CI includes zero, can't confirm price matters at all).
+  3. If `margin` is out of (0, 1).
+- **Why:** A tool that can't tell whether price affects demand has no business
+  computing a confident markdown number. The `confidence == "low"` refusal is what
+  keeps the tool honest; it isn't a data-sparsity refusal, it's a "the answer might
+  be zero and we can't rule it out" refusal.
+- **Clip rule.** The recommended discount is clipped to the deepest discount ever
+  observed for that product (`_historical_max_discount_depth`). Follows the D-008
+  principle: never recommend outside the observed data range.
+- **Profit change calculation.** Profit at price P relative to baseline P0 under
+  constant elasticity is `[(P - C) / (P0 - C)] * (P / P0)^e`. Point estimate uses the
+  coefficient; the range uses `ci_low` and `ci_high` for a plausible band.
+- **Verification:**
+  - Real products 995242 and 1133018 both `insufficient_data` (low confidence CI
+    includes zero). Correct: the tool refuses to recommend a discount for a staple
+    where the price effect isn't statistically distinguishable from zero.
+  - Six synthetic tests cover: inelastic -> no discount; margin below optimal -> no
+    discount; margin above optimal -> recommended; deep discount -> clipped to historical.
+- **Trade-offs / what I'd revisit:**
+  - The `margin` input is assumed, not measured. Real cost data isn't in this dataset.
+  - The formula assumes constant elasticity, ignores competitor response and
+    cross-product effects.
+  - Recommendation uses `|e|` point estimate; CI feeds only the profit range, not the
+    refuse/accept gate. A stricter version would refuse when the CI is wider than some
+    threshold.
