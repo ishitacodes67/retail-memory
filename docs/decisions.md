@@ -159,3 +159,39 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
     discount_depth < 0.35, because a weighted average cannot exceed its largest
     input. `max_depth_when_not = 0.3499` confirms this empirically. The test
     locks the property in so any future drift is caught by CI.
+    
+---
+
+### D-009: estimate_elasticity as a separate function from recommend_markdown
+- **Date:** 2026-10-09
+- **Context:** The project needs both a "what does the data say" estimator and a
+  "what should we do" recommender. These could be combined into one function.
+- **Decision:** Keep them separate. `estimate_elasticity` returns an estimate or a
+  refusal, with method, CI, and confidence. `recommend_markdown` will take that
+  estimate and add margin economics on top, as a distinct function in a distinct
+  module.
+- **Why:**
+  - Different inputs. `estimate_elasticity` only needs a product_id. `recommend_markdown`
+    needs a margin assumption, which is separate economic input the data can't supply.
+  - Different callers. The agent will route to `estimate_elasticity` for "how elastic
+    is X" and `recommend_markdown` for "what discount should I run on X." A combined
+    function would still need branchy output.
+  - Testability. The estimator is testable against the notebook's hand fits; the
+    recommender's margin math is a separate concern with its own tests.
+  - Interview clarity. "I separated estimation from decision" is a cleaner design
+    story than "one function does both."
+- **Branch selection inside estimate_elasticity.** The function has three branches:
+  - **refused** if quantity is degenerate (D-008) or weeks < 20
+  - **month_fallback** if pricing is centralized (avg within-week price SD < 0.01)
+  - **two_way_fe** otherwise (week + store FE, store-clustered SEs)
+- **Verification against notebook hand-fits:**
+  - 995242: −0.226, CI [−0.466, 0.015] — matches
+  - 1133018: −0.162, CI [−0.426, 0.103] — matches
+  - 201704 (banana): refused on degenerate quantity — matches D-008
+- **Trade-offs / what I'd revisit:**
+  - Two functions means two places to keep aligned if estimation logic changes.
+  - Refusal logic lives only in the estimator; the recommender must propagate
+    refusals, not re-implement them.
+  - Confidence is currently binary ("high" if CI excludes zero, "low" otherwise).
+    A numeric score would be more expressive but harder to threshold. Revisit
+    if a downstream tool needs gradations.
