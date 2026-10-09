@@ -159,3 +159,52 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
     discount_depth < 0.35, because a weighted average cannot exceed its largest
     input. `max_depth_when_not = 0.3499` confirms this empirically. The test
     locks the property in so any future drift is caught by CI.
+
+
+---
+
+### D-008: Bulk/case-sized SKUs excluded from elasticity fitting
+- **Date:** 2026-10-09
+- **Context:** Product 1082185 (BANANAS, National, PRODUCE, curr_size_of_product "40 LB")
+  produced a positive elasticity coefficient (+0.120, CI [0.077, 0.163]) with
+  store-clustered SEs and both week and store fixed effects. A positive own-price
+  elasticity is economically backwards for a consumer product. The result was not
+  noise — the CI was tight and clearly excluded zero — so the regressor itself
+  had to be suspect.
+- **Diagnosis (empirical, not hypothetical):**
+  - 28,764 of 29,757 positive-quantity rows (96.7%) have `quantity = 1`.
+  - Per-store average quantity ranges 1.00 to 1.33 across 115 stores, effectively
+    constant.
+  - `curr_size_of_product` = "40 LB". This is a wholesale case, not a retail unit.
+  - Mechanism: for bulk SKUs, the POS log records `quantity = 1` per transaction
+    regardless of the actual weight sold. So `sales_value / quantity` is
+    approximately `sales_value` itself — total dollars per transaction, not a unit
+    price. The regression "log(quantity) ~ log(price)" becomes "count of purchase
+    events ~ average spend per purchase," neither of which carries the intended
+    signal.
+- **Decision:** Exclude bulk/case-sized SKUs from elasticity analysis and from
+  `recommend_markdown`. The identifying rule: `curr_size_of_product` with LB
+  values >= 10, or CTN/CS/case-style units. Not a department-level rule — bananas
+  at 8 OZ are fine, only the 40 LB case is broken.
+- **Why this rule rather than "produce is excluded":**
+  - The narrower rule matches what was actually shown. Only one SKU was proven
+    broken; the wider claim would overgeneralize.
+  - 82 products carry "40 LB" as their size, so the pattern is real and worth
+    catching across categories.
+  - Department-level exclusion would throw out usable produce SKUs (8 OZ bananas,
+    packaged salads, etc.).
+- **Adds a new tool requirement:** `recommend_markdown` must detect degenerate
+  quantity. If over 90% of a product's transactions have `quantity = 1`, the tool
+  should return "low quantity variance" and refuse to estimate. This is a
+  different failure mode than "insufficient data" (which is about coverage) —
+  it's about the quantity field itself being uninformative.
+- **Trade-offs / what I'd revisit:**
+  - The 90% threshold is a heuristic. If it turns out too aggressive (some
+    legitimate products sit just above it), lower to 95%.
+  - Some bulk SKUs might genuinely be purchased in varying quantities if bought
+    by households in larger sizes for freezing, etc. The 40 LB case is clearly
+    wholesale, but "10 LB" sizes are ambiguous. Revisit if user feedback suggests
+    the rule is over-blocking.
+  - Reverse-causal markdown timing on perishables (markdown because it's selling
+    slowly) remains a separate, unaddressed phenomenon. Not the cause here, but
+    may affect elasticity estimates on other perishables.

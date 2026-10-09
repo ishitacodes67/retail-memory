@@ -16,6 +16,7 @@ the number of weeks in that window where `is_price_promo` is true (from `product
 - **Inputs:** a product identifier and an assumed gross margin as a percentage.
 - **Output:** a recommended discount depth, a predicted profit change versus no discount, a confidence interval around that change, and a confidence label ("high", "low", or "insufficient data").
 - **Failure behavior:** if the elasticity estimate has too few observations, return "insufficient data" instead of a recommendation. If margin is missing or out of range (0 to 1), refuse. Never recommend a discount depth the historical data never covered.
+- If over 90% of the product's transactions have `quantity = 1`, return "low quantity variance" instead of a recommendation. See D-008 for why (bulk/case-sized SKUs where the POS logs a binary purchase flag, not a unit count).
 
 ### FR3: detect_cannibalization
 
@@ -64,6 +65,7 @@ the number of weeks in that window where `is_price_promo` is true (from `product
 | Out-of-scope question to the agent | Reply "I can't answer that with the available tools", do not call any tool |
 | LLM produces numbers without calling a tool | Reject the response; require a tool call before returning any number |
 | Groq API timeout | Retry once, then return "service unavailable" with no fabricated answer |
+| > 90% of a product's transactions have quantity = 1 | Return "low quantity variance" and refuse elasticity; quantity field is degenerate (see D-008) |
 
 ## Out of scope
 
