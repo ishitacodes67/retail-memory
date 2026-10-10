@@ -1,5 +1,6 @@
 """FR2: recommend_markdown. Built on estimate_elasticity.
 See D-010 for the pricing formula and why it refuses when it does.
+See D-016 for the ci_level propagation.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ class MarkdownRecommendation:
     predicted_profit_change: float | None
     predicted_profit_change_range: tuple[float, float] | None
     notes: list[str]
+    ci_level: float | None = None
 
 
 def _current_price(con, product_id: int) -> float | None:
@@ -90,6 +92,7 @@ def recommend_markdown(
         return MarkdownRecommendation(
             product_id, margin, "insufficient_data", est.coefficient,
             (est.ci_low, est.ci_high), None, None, None, False, None, None, notes,
+            ci_level=est.ci_level,
         )
 
     e = est.coefficient
@@ -99,6 +102,7 @@ def recommend_markdown(
         return MarkdownRecommendation(
             product_id, margin, "insufficient_data", e, (est.ci_low, est.ci_high),
             None, None, None, False, None, None, notes,
+            ci_level=est.ci_level,
         )
 
     if abs(e) <= 1:
@@ -107,6 +111,7 @@ def recommend_markdown(
         return MarkdownRecommendation(
             product_id, margin, "no_discount_indicated", e, (est.ci_low, est.ci_high),
             current_price, None, None, False, None, None, notes,
+            ci_level=est.ci_level,
         )
 
     optimal_margin = 1 / abs(e)
@@ -117,6 +122,7 @@ def recommend_markdown(
         return MarkdownRecommendation(
             product_id, margin, "no_discount_indicated", e, (est.ci_low, est.ci_high),
             current_price, None, None, False, None, None, notes,
+            ci_level=est.ci_level,
         )
 
     cost = current_price * (1 - margin)
@@ -140,4 +146,5 @@ def recommend_markdown(
         product_id, margin, "recommended", e, (est.ci_low, est.ci_high),
         current_price, recommended_price, discount_depth, clipped,
         profit_point, (min(profit_low, profit_high), max(profit_low, profit_high)), notes,
+        ci_level=est.ci_level,
     )

@@ -16,6 +16,7 @@ QUANTITY_DEGENERATE_THRESHOLD = 0.90    # D-008: banana case
 MIN_WEEKS_FOR_ESTIMATE = 20
 NEAR_UNIFORM_PRICE_SD = 0.01            # Day 8 diagnostic threshold
 PRACTICAL_SIGNIFICANCE_EPSILON = 0.05   # D-011: CI must clear this band
+CI_LEVEL = 0.95  # matches statsmodels' default alpha=0.05
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class ElasticityEstimate:
     n_weeks: int
     df_resid: int | None
     notes: list[str]
+    ci_level: float = CI_LEVEL
 
 
 def _quantity_is_degenerate(con, product_id: int) -> bool:
