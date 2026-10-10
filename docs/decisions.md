@@ -413,3 +413,27 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Prompt v1 is a live experiment, not a final version. Expect to iterate v2 after the agent loop is built (Day 15) and the re-presentation layer exists.
   - No numeric eval score yet. Day 19 builds the eval harness that will turn this table into a pass rate.
   - q4 was easy. A harder out-of-scope question ("what's the best price for competitor product Y?") would test rule 2 more stringently.
+  
+---
+
+### D-015: Agent loop -- real tool execution with code-side interception
+- **Date:** 2026-10-10
+- **Context:** Day 14 showed the prompt cannot prevent the model from silently inventing parameters (rule 3 did not fix q2). Day 15 builds the agent loop that does the validation in code, not in the prompt.
+- **Loop structure:**
+  1. Send question + SYSTEM_PROMPT_V1 + both tool schemas to Groq.
+  2. If no tool call → return "declined" with the model's text.
+  3. If tool call → extract args, check each value against the question text via `_value_appears_in_text`.
+  4. If any parameter value doesn't appear in the question → return "clarification_needed" with a plain-language ask.
+  5. If all parameters trace to the question → execute the real tool, serialize the dataclass with `asdict` + `json.dumps`, send the result back to Groq as a `tool` role message.
+  6. Groq explains the result in plain language; return as "answered".
+- **Why code-side, not prompt-side:** Day 14 tested the prompt-based approach and it failed structurally. The model produced a tool call with no accompanying content, so a "state your assumption" rule had nothing to attach to. Code-side validation is authoritative regardless of what the model says.
+- **Known limitation (documented as revisit trigger in D-014):** `_value_appears_in_text` is a literal substring check. It catches pure invention but not legitimate inference presented as fact. A `assumption_note` schema field would close that gap; deferred.
+- **Three real test results (2026-10-10):**
+  - **Q1 (clean):** "total sales 995242, weeks 1-20" → `answered`. Tool called: `get_sales_summary(995242, 1, 20)`. Final text: "Total units sold: 2,235, Total revenue: $2,694.32." Verified against raw tool output — matches.
+  - **Q2 (invented params):** "Is product 995242 doing well?" → `clarification_needed`. Invented: `['start_week', 'end_week']`. Interception worked — no tool executed.
+  - **Q3 (real round trip):** "Should I discount product 1127831 assuming a 30% margin?" → `answered`. Tool called: `recommend_markdown(1127831, 0.30)`. Final text reported e=−0.709, CI [−0.834, −0.584], current price $3.91, no discount, with the inelastic note. **Verified against raw MarkdownRecommendation output — no editorialising, no rounding beyond the tool's own values, no invented numbers.**
+- **Small bug found and fixed during the run:** the clarification message originally leaked internal parameter names (`end_week, start_week`). Added a `PARAM_LABELS` map so the user sees "the starting week and the ending week".
+- **Trade-offs / what I'd revisit:**
+  - One tool call per turn. If the model ever wants to chain tools (sales summary → recommend markdown), the loop must be extended.
+  - No iteration limit on the follow-up turn. If Groq loops on a follow-up, this hangs. Day 16's guardrails should add a max-turns cap.
+  - The `_value_appears_in_text` check is over-conservative by design (see D-014 revisit trigger).
