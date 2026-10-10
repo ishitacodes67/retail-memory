@@ -30,7 +30,8 @@ class ElasticityEstimate:
     n_weeks: int
     df_resid: int | None
     notes: list[str]
-    ci_level: float = CI_LEVEL
+    ci_level: float | None = None
+
 
 
 def _quantity_is_degenerate(con, product_id: int) -> bool:
@@ -176,4 +177,5 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
     return ElasticityEstimate(
         product_id, method, float(coef), float(ci_low), float(ci_high),
         confidence, n_weeks, int(model.df_resid), notes,
+        ci_level=CI_LEVEL,
     )
