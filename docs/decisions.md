@@ -313,3 +313,43 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   but the refusal is identical.
 - The taxonomic finding — three categories of products, not one — is a stronger
   interview story than a single binary "works / doesn't work" claim.
+  
+---
+
+### D-012: Rule-based router limitations (why an LLM is needed)
+- **Date:** 2026-10-10
+- **Context:** Before building the Groq tool-calling agent (Day 13+), built the
+  simplest possible alternative: a plain Python function that routes a question to
+  a tool by keyword matching. Purpose is twofold: (1) make the value of real
+  tool-calling visible by contrast, (2) provide a zero-dependency fallback that
+  needs no API key or network (NFR7).
+- **Decision:** Ship `src/retail_memory/agent/router.py` as an explicitly imperfect
+  baseline. Tests deliberately include failing cases as documentation of the
+  router's limits.
+- **Observed failures (from the test suite):**
+  - **No keywords at all.** "Is product X doing well?" contains none of "summary",
+    "sales", "revenue", "discount", "markdown", "margin". Routes to `UNKNOWN`. A
+    human reads this as a sales-performance question; the router can't.
+  - **Ambiguous overlap.** "How much revenue would a markdown on product X bring
+    in?" matches BOTH keyword groups. The router returns `SALES_SUMMARY` because
+    the "revenue" check happens first in the `if` chain. The user's actual intent
+    is a markdown recommendation, so the router is confidently wrong -- and the
+    wrongness comes from dictating check order, not from any semantic understanding.
+- **What an LLM does differently.** A tool-calling LLM parses the *subject* of a
+  question (what is being asked about: revenue, markdown, cannibalization) rather
+  than scanning for the first matching token. It also handles paraphrase:
+  "will discounting hurt us" and "should we cut the price" both route to the
+  markdown tool without needing a keyword list. The rule-based version needs a
+  keyword for each phrasing, and the list grows unboundedly.
+- **Why ship it anyway:**
+  - It is testable, deterministic, and always available (no API key, no network).
+  - It gives the Week 3 agent a fallback path if Groq is unreachable (NFR8).
+  - It makes the interview answer concrete: "here's the exact question that
+    breaks keyword matching, and here's what the LLM does instead."
+- **Trade-offs / what I'd revisit:**
+  - The keyword lists are small and will miss common phrasings. This is intentional:
+    the router is not meant to be improved, it's meant to be a floor.
+  - No confidence score. Every match is treated as equally certain, including
+    the ambiguous-overlap case where the router is likely wrong.
+  - Not integrated into the agent yet. Day 13 wires the agent to prefer the LLM
+    router and fall back to this one on API failure.
