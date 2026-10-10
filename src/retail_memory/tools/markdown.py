@@ -32,17 +32,17 @@ class MarkdownRecommendation:
 def _current_price(con, product_id: int) -> float | None:
     """Volume-weighted price over the most recent N weeks."""
     row = con.sql(
-        f"""
+        """
         WITH recent AS (
-            SELECT week_no, net_revenue, total_quantity
+            SELECT net_revenue, total_quantity
             FROM product_week
             WHERE product_id = ?
             ORDER BY week_no DESC
-            LIMIT {RECENT_WEEKS_FOR_CURRENT_PRICE}
+            LIMIT ?
         )
         SELECT SUM(net_revenue) / SUM(total_quantity) FROM recent
         """,
-        params=[product_id],
+        params=[product_id, RECENT_WEEKS_FOR_CURRENT_PRICE],
     ).fetchone()
     return row[0] if row and row[0] is not None else None
 
