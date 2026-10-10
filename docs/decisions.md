@@ -244,3 +244,66 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Recommendation uses `|e|` point estimate; CI feeds only the profit range, not the
     refuse/accept gate. A stricter version would refuse when the CI is wider than some
     threshold.
+    
+---
+
+### D-011: Three-way confidence taxonomy and elasticity guardrails
+- **Date:** 2026-10-10
+- **Context:** Ran `estimate_elasticity` on the 30 highest-volume candidates from the
+  Day 6 screen. Result: 21 low confidence, 8 high confidence, 1 insufficient. Of the
+  8 high, **zero** would produce a `recommend_markdown` "recommended" result, because
+  all 7 negative ones have |e| < 1 (inelastic). This confirms the revisit trigger named
+  in D-001 before any modeling was done.
+- **The three-way taxonomy (headline framing):**
+  1. **Low confidence (21):** "we can't tell if price matters." CI includes zero.
+  2. **High confidence but inelastic (7):** "price matters, but not enough to make
+     discounting profitable." |e| < 1. Correct answer is no discount.
+  3. **High confidence and elastic (0):** "discount is justified." None in the sample.
+- **Decision: ship `recommend_markdown` as built.** Refusing honestly on low power
+  and on inelastic demand is correct behavior, not a bug. It matches the project's
+  never-overclaim design. Sub-commodity or department-level pooling (the fix D-001
+  anticipated) is deferred: priority is reaching the Week 3 agent, and the current
+  per-product tool produces honest answers on a real sample.
+
+**Guardrails added during the batch scan:**
+
+- **Singular matrix detection.** Real fit on product 1007195 fired a
+  `SingularMatrixWarning` (rank-deficient design matrix from sparse store/week
+  combinations). Fixed with a `_fit_checked` helper that catches the warning and
+  returns `"refused"` rather than reporting a coefficient from a broken fit. Applied
+  to both `two_way_fe` and `month_fallback` branches.
+
+- **Positive coefficient refusal.** Product 995785 returned +0.650 (CI [0.244, 1.056]).
+  Diagnosed the mechanism: quantity varies normally (not a banana case) and
+  `curr_size_of_product = "48-54 CT"`. Root cause is most likely **price
+  endogeneity**: seasonal demand peaks push prices up (supply-constrained), so
+  price and quantity move together. Not the D-008 measurement failure, but the
+  practical remedy is the same — refuse. Positive, statistically significant
+  coefficients are not plausible normal-good demand.
+
+- **Practical-significance epsilon.** Product 844179 had CI [−0.184, −0.001], and
+  1126899 had [−0.708, −0.027]. Both technically exclude zero, but their CIs sit
+  inside the ±0.05 practical-significance band. Neither should count as "high"
+  confidence. Added `PRACTICAL_SIGNIFICANCE_EPSILON = 0.05`; a CI must clear this
+  band on one side to earn "high" confidence.
+
+**Verification (real data):**
+- 1007195 — singular matrix, now refused.
+- 995785 — positive coefficient, now refused.
+- 844179, 1126899 — demoted from high to low by the epsilon rule.
+- Best surviving high-confidence case: **1127831**, e = −0.709, CI [−0.834, −0.584].
+  Inelastic, so `recommend_markdown` returns `no_discount_indicated`. Clean demo case
+  for Week 3.
+- Clean low-confidence contrast case: **995242**, milk, CI includes zero.
+
+**Trade-offs / what I'd revisit:**
+- `PRACTICAL_SIGNIFICANCE_EPSILON = 0.05` is a judgment call, not derived. Chosen
+  because in grocery retail a price elasticity of |e| < 0.05 is effectively zero
+  from a pricing standpoint.
+- Singular-matrix handling refuses the product entirely; a better long-term fix
+  would be to drop the problematic store/store-week cells and refit.
+- Positive coefficient refusal catches both measurement failure (D-008) and
+  endogeneity (D-011). The `notes` field distinguishes the two cases when known,
+  but the refusal is identical.
+- The taxonomic finding — three categories of products, not one — is a stronger
+  interview story than a single binary "works / doesn't work" claim.
