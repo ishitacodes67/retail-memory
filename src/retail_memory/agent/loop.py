@@ -98,6 +98,7 @@ def _answer_question_inner(
             ],
             tools=ALL_TOOLS,
             tool_choice="auto",
+            parallel_tool_calls=False,
         )
     )
     msg = response.choices[0].message
@@ -159,6 +160,7 @@ def _answer_question_inner(
                 },
             ],
             tools=ALL_TOOLS,
+            parallel_tool_calls=False,
         )
     )
 
