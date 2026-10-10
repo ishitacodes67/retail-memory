@@ -1,0 +1,15 @@
+﻿
+Q: What were the total sales for product 995242 between weeks 1 and 20?
+  -> called get_sales_summary({"end_week":20,"product_id":995242,"start_week":1})
+
+Q: Is product 995242 doing well?
+  -> called get_sales_summary({"end_week":102,"product_id":995242,"start_week":90})
+
+Q: How much revenue would a markdown on product X bring in?
+  -> no tool call. Model said: To estimate the revenue impact of a markdown, IΓÇÖll need a few details about the product and the time frame you have in mind:
+
+1. **Product identifier** ΓÇô the numeric product ID for ΓÇ£productΓÇ»X.ΓÇ¥
+2. **Weeks to analyze** ΓÇô the start and end week numbers (1ΓÇæ102) for the period you want to look at.
+3. **Markdown amount** ΓÇô the percentage (or dollar amount) you plan to reduce the price by.
+
+If you can provide those three pieces of information, I can pull the sales data and calculate the projected revenue change for you.

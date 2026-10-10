@@ -353,3 +353,24 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
     the ambiguous-overlap case where the router is likely wrong.
   - Not integrated into the agent yet. Day 13 wires the agent to prefer the LLM
     router and fall back to this one on API failure.
+    
+---
+
+### D-013: First Groq tool call -- router comparison and a new failure mode
+- **Date:** 2026-10-10
+- **Context:** Day 13 wires Groq's tool-calling API to `get_sales_summary` via a Pydantic schema. The point is direct comparison against the rule-based router (D-012) on the same questions.
+- **Model note:** Got a **404** on `llama-3.1-8b-instant` and a **tool_use_failed** error on `llama-3.3-70b-versatile` as of 2026-10-10. Groq's docs (console.groq.com/docs/tool-use) list both as tool-use-capable, so the 404 is more likely a stale or renamed model ID than a capability gap; the two errors are different failure types and shouldn't be collapsed. Switched to `openai/gpt-oss-120b`, which is independently confirmed as tool-use-capable and works end-to-end here.
+- **Results on three questions:**
+
+  | Question | Router | Groq |
+  |---|---|---|
+  | "total sales for 995242, weeks 1-20" | SALES_SUMMARY | SALES_SUMMARY, args {product_id:995242, start_week:1, end_week:20} |
+  | "Is product 995242 doing well?" | UNKNOWN | SALES_SUMMARY, args {product_id:995242, start_week:90, end_week:102} |
+  | "revenue from a markdown on product X" | SALES_SUMMARY (wrong) | no tool call; asked for product ID, week range, discount details |
+
+- **The router's two documented failures are both addressed.** Q2 (no-keyword) routes correctly via intent recognition. Q3 (ambiguous overlap) is handled by asking for clarification instead of guessing.
+- **New failure mode discovered.** On Q2, Groq invented a 13-week window (weeks 90-102) for "doing well" without asking. The answer would look authoritative but the parameters weren't the user's. Where the router fails loudly (UNKNOWN), the LLM fails quietly (confident answer, invented args).
+- **Design implication.** The agent layer (Day 14+) must add a confirmation step for underspecified questions -- either asking the user for the window, or stating "assuming last 13 weeks" before executing. Confidently-wrong is worse than visibly-broken.
+- **Trade-offs / what I'd revisit:**
+  - The Q2 behavior is defensible as a UX choice if the agent *tells* the user what it assumed. Silent assumptions are the problem.
+  - Only one tool is available today. Q3's real test (sales vs markdown routing) requires Day 14's second tool.
