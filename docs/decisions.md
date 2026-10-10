@@ -437,3 +437,37 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - One tool call per turn. If the model ever wants to chain tools (sales summary → recommend markdown), the loop must be extended.
   - No iteration limit on the follow-up turn. If Groq loops on a follow-up, this hangs. Day 16's guardrails should add a max-turns cap.
   - The `_value_appears_in_text` check is over-conservative by design (see D-014 revisit trigger).
+  
+---
+
+### D-016: Confidence-level fabrication fix, and agent guardrails
+- **Date:** 2026-10-10
+- **Context:** Day 15 verification caught the agent stating a "90% confidence interval" when the tool returns a 95% CI by default. The elasticity and bounds were correct; the *label* was fabricated. Same batch, another question correctly said "confidence interval" with no percentage. Inconsistent: the model was guessing whether to label, and picking a plausible-looking number when it did.
+
+- **Root cause:** `ElasticityEstimate` and `MarkdownRecommendation` carried `ci_low` and `ci_high` as bare floats. Nothing in the tool result told the model what confidence level those bounds represented. The model needed a label to explain the interval in English and invented one.
+
+- **Fix (structural, not prompt-only):**
+  - Added `CI_LEVEL = 0.95` to `retail_memory.tools.elasticity`, matching statsmodels' default `alpha=0.05`.
+  - Added `ci_level: float | None = None` to `ElasticityEstimate`, set explicitly to `CI_LEVEL` only on the success return.
+  - Added `ci_level: float | None = None` to `MarkdownRecommendation`; populated from `est.ci_level` on all five non-refused return sites.
+  - `asdict()` on either dataclass now carries `ci_level` into the tool result JSON automatically.
+  - System prompt rule 5 rewritten: cite the `ci_level` field's value as the confidence percentage; never state a level that wasn't provided.
+
+- **Why structural beats prompt-only:** the same lesson as D-014. A prompt that says "don't invent the confidence level" fails when the model has no other source for it. Giving the model the actual value removes the temptation. Prompt rules can constrain behavior that's otherwise possible; they can't supply missing information.
+
+- **Banana-case check (refused path):** `estimate_elasticity(con, 201704).ci_level` returns `None`, matching `coefficient=None` and `ci_low/high=None`. Agent's final text for "Should I discount product 201704?" mentions no confidence level. Earlier version had `ci_level: float = CI_LEVEL` as a fixed default, which leaked 0.95 onto refused paths. Now `ci_level` is only set where an actual fit ran.
+
+- **Verification after fix:** re-ran q3 ("Should I discount 1127831 assuming a 30% margin?"). Output now reads "95 % confidence interval: [−0.8337, −0.5839]" — correct percentage, exact bounds, no fabrication.
+
+- **Guardrails added the same day (NFR8):**
+  - **Retry with exponential backoff on rate limits.** `_call_with_retry` wraps both Groq calls in `answer_question`. `MAX_RETRY_ATTEMPTS = 3`, `RETRY_BASE_DELAY = 1.0`. Sleeps 1s, then 2s, then gives up. Rate limits are transient; three attempts catches the common burst case without turning a hard failure into a long hang.
+  - **Max-turns guard.** `MAX_TOOL_CALLS_PER_QUESTION = 1`. If the model returns multiple tool calls in one turn, the loop refuses with a clear message rather than silently executing the first. Raised deliberately if multi-step reasoning is added later.
+  - **Distinct handling for timeouts and connection errors.** `answer_question` wraps `_answer_question_inner` in a try/except that catches `groq.APITimeoutError` and `groq.APIConnectionError` separately from rate limiting. Both return `status="service_unavailable"` with the underlying error text, rather than propagating up uncaught. Rate limits retry; timeouts and connection issues don't (a timeout is likely a server-side stall; retrying immediately won't help).
+
+- **Tests:** `tests/test_guardrails.py` covers the retry wrapper (succeeds after transient failures; gives up after max attempts). Both tests mock the Groq client, no API key or network required. Confirmed by running the full suite with `GROQ_API_KEY` unset: 51 passed.
+
+- **Trade-offs / what I'd revisit:**
+  - `MAX_RETRY_ATTEMPTS = 3` and `RETRY_BASE_DELAY = 1.0` are judgment calls. If Groq's rate limits get tighter or looser, revisit these two values.
+  - Timeouts currently don't retry at all. If they become common, add a separate retry policy with a longer base delay.
+  - The max-turns guard is future-proofing — today's loop only ever produces one tool call per turn.
+  - Prompt rule 5 still says "state the ci_level value." If the model still invents a percentage with the field present, prompt rule 5 gets tightened to a hard format instruction, or the check moves into the agent loop's text validator.
