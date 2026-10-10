@@ -230,6 +230,13 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
     where the price effect isn't statistically distinguishable from zero.
   - Six synthetic tests cover: inelastic -> no discount; margin below optimal -> no
     discount; margin above optimal -> recommended; deep discount -> clipped to historical.
+    - **Real-product outcomes (all four refuse):** 995242 and 1133018 both refuse on
+    low confidence (CI includes zero). 201704 refuses on degenerate quantity (D-008
+    propagation). 1113588 (month_fallback branch) refuses on low confidence with a
+    very wide CI [-6.672, 1.321]. No real product examined so far supports a
+    confident markdown recommendation. This is the correct, honest output, not a
+    bug: no product in the current sample has a CI that excludes zero, so the tool
+    has nothing to recommend against.
 - **Trade-offs / what I'd revisit:**
   - The `margin` input is assumed, not measured. Real cost data isn't in this dataset.
   - The formula assumes constant elasticity, ignores competitor response and
