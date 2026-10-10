@@ -26,6 +26,7 @@ def con():
 
     rng = np.random.default_rng(0)
 
+    # Product 100: normal, decentralized, enough weeks -> two_way_fe branch
     connection.execute("INSERT INTO product VALUES (100, '12 OZ')")
     rows_sw, rows_txn = [], []
     for w in range(N_WEEKS):
@@ -37,11 +38,13 @@ def con():
     connection.executemany("INSERT INTO product_store_week VALUES (?,?,?,?,?,?,?,?,?,?)", rows_sw)
     connection.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?)", rows_txn)
 
+    # Product 200: degenerate quantity (banana pattern) -> refused
     connection.execute("INSERT INTO product VALUES (200, '40 LB')")
     rows_txn2 = [(200, s, w, 1, round(float(rng.uniform(5, 8)), 2), 0.0)
                  for w in range(N_WEEKS) for s in range(N_STORES)]
     connection.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?)", rows_txn2)
 
+    # Product 300: too few weeks -> refused
     connection.execute("INSERT INTO product VALUES (300, '1 LB')")
     connection.executemany(
         "INSERT INTO transactions VALUES (?,?,?,?,?,?)",

@@ -1,18 +1,21 @@
 """FR2 groundwork: elasticity estimation. See notebooks/elasticity_naive_vs_fixed.ipynb
-for the derivation, and D-006/D-008 for why this function is shaped the way it is.
+for the derivation, and D-006, D-008, D-011 for why this function is shaped this way.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import duckdb
 import numpy as np
 import statsmodels.formula.api as smf
+from statsmodels.tools.sm_exceptions import SingularMatrixWarning
 
-QUANTITY_DEGENERATE_THRESHOLD = 0.90   # D-008: banana case
+QUANTITY_DEGENERATE_THRESHOLD = 0.90    # D-008: banana case
 MIN_WEEKS_FOR_ESTIMATE = 20
-NEAR_UNIFORM_PRICE_SD = 0.01           # Day 8 diagnostic threshold
+NEAR_UNIFORM_PRICE_SD = 0.01            # Day 8 diagnostic threshold
+PRACTICAL_SIGNIFICANCE_EPSILON = 0.05   # D-011: CI must clear this band
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,27 @@ def _is_centralized_pricing(con, product_id: int) -> bool:
     return spread is None or spread < NEAR_UNIFORM_PRICE_SD
 
 
+def _fit_checked(formula: str, data, cluster_groups=None):
+    """Fit an OLS model; return (model, warning_flag).
+
+    warning_flag is True if a SingularMatrixWarning fired, meaning the design
+    matrix was rank-deficient and the coefficients are not uniquely determined.
+    Caller should treat that as a refusal, not a valid fit.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if cluster_groups is not None:
+            model = smf.ols(formula, data=data).fit(
+                cov_type="cluster", cov_kwds={"groups": cluster_groups}
+            )
+        else:
+            model = smf.ols(formula, data=data).fit()
+        singular = any(
+            issubclass(w.category, SingularMatrixWarning) for w in caught
+        )
+    return model, singular
+
+
 def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> ElasticityEstimate:
     notes: list[str] = []
 
@@ -62,7 +86,7 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
     if _quantity_is_degenerate(con, product_id):
         notes.append(
             f"Over {QUANTITY_DEGENERATE_THRESHOLD:.0%} of transactions have quantity=1 "
-            f"(see D-008). Quantity is not a meaningful unit count for "
+            f"(see D-008). Quantity is not a meaningful unit count for this product; "
             f"refusing to estimate."
         )
         return ElasticityEstimate(
@@ -91,7 +115,7 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
             """, params=[product_id],
         ).df()
         df["month"] = ((df["week_no"] - 1) // 4) % 24
-        model = smf.ols("log_qty ~ log_price + C(month)", data=df).fit()
+        model, singular = _fit_checked("log_qty ~ log_price + C(month)", df)
         method = "month_fallback"
     else:
         df = con.sql(
@@ -103,18 +127,49 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
         ).df()
         df["log_qty"] = np.log(df["total_quantity"])
         df["log_price"] = np.log(df["price"])
-        model = smf.ols("log_qty ~ log_price + C(week_no) + C(store_id)", data=df).fit(
-            cov_type="cluster", cov_kwds={"groups": df["store_id"]}
+        model, singular = _fit_checked(
+            "log_qty ~ log_price + C(week_no) + C(store_id)",
+            df, cluster_groups=df["store_id"],
         )
         method = "two_way_fe"
 
+    if singular:
+        notes.append(
+            "Rank-deficient design matrix (SingularMatrixWarning). Coefficients are "
+            "not uniquely determined; refusing rather than reporting an unreliable number."
+        )
+        return ElasticityEstimate(
+            product_id, "refused", None, None, None, "insufficient_data",
+            n_weeks, int(model.df_resid), notes,
+        )
+
     coef = model.params["log_price"]
     ci_low, ci_high = model.conf_int().loc["log_price"]
-    excludes_zero = (ci_low > 0) or (ci_high < 0)
-    confidence = "high" if excludes_zero else "low"
-    if not excludes_zero:
-        notes.append("CI includes zero: cannot distinguish the effect from zero "
-                     "at this sample size.")
+
+    if coef > 0 and ci_low > 0:
+        notes.append(
+            f"Positive, statistically significant coefficient ({coef:.3f}, "
+            f"CI [{ci_low:.3f}, {ci_high:.3f}]). Price and quantity moving together "
+            f"is not plausible normal-good demand behavior. Likely a measurement "
+            f"issue (D-008) or price endogeneity (D-011). Refusing rather than "
+            f"reporting a backwards recommendation."
+        )
+        return ElasticityEstimate(
+            product_id, "refused", None, None, None, "insufficient_data",
+            n_weeks, int(model.df_resid), notes,
+        )
+
+    excludes_practical_zero = (
+        (ci_low > PRACTICAL_SIGNIFICANCE_EPSILON)
+        or (ci_high < -PRACTICAL_SIGNIFICANCE_EPSILON)
+    )
+    confidence = "high" if excludes_practical_zero else "low"
+    if not excludes_practical_zero:
+        notes.append(
+            f"CI [{ci_low:.3f}, {ci_high:.3f}] does not clear the "
+            f"+/-{PRACTICAL_SIGNIFICANCE_EPSILON} practical-significance band. "
+            f"Treated as low confidence even though it may exclude zero."
+        )
 
     return ElasticityEstimate(
         product_id, method, float(coef), float(ci_low), float(ci_high),
