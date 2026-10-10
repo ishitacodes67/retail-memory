@@ -1,30 +1,33 @@
+import json
 import os
 
 from dotenv import load_dotenv
 from groq import Groq
 
-from retail_memory.agent.schemas import GET_SALES_SUMMARY_TOOL
+from retail_memory.agent.prompts import SYSTEM_PROMPT_V1
+from retail_memory.agent.schemas import ALL_TOOLS
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
-QUESTIONS = [
-    "What were the total sales for product 995242 between weeks 1 and 20?",
-    "Is product 995242 doing well?",
-    "How much revenue would a markdown on product X bring in?",
-]
+with open("evals/questions.jsonl") as f:
+    questions = [json.loads(line) for line in f]
 
-for q in QUESTIONS:
+for q in questions:
     response = client.chat.completions.create(
         model="openai/gpt-oss-120b",
-        messages=[{"role": "user", "content": q}],
-        tools=[GET_SALES_SUMMARY_TOOL],
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_V1},
+            {"role": "user", "content": q["question"]},
+        ],
+        tools=ALL_TOOLS,
         tool_choice="auto",
     )
     msg = response.choices[0].message
-    print(f"\nQ: {q}")
+    print(f"\n[{q['id']}] {q['question']}")
+    print(f"  router said: {q['router_result']}")
     if msg.tool_calls:
         for call in msg.tool_calls:
-            print(f"  -> called {call.function.name}({call.function.arguments})")
+            print(f"  groq called: {call.function.name}({call.function.arguments})")
     else:
-        print(f"  -> no tool call. Model said: {msg.content}")
+        print(f"  groq declined/asked for clarification: {msg.content}")
