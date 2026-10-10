@@ -374,3 +374,42 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 - **Trade-offs / what I'd revisit:**
   - The Q2 behavior is defensible as a UX choice if the agent *tells* the user what it assumed. Silent assumptions are the problem.
   - Only one tool is available today. Q3's real test (sales vs markdown routing) requires Day 14's second tool.
+
+---
+
+### D-014: System prompt v1 -- rules, comparison table, and where it fails
+- **Date:** 2026-10-10
+- **Context:** Day 13 found that Groq silently invented parameters on underspecified questions (q2: "Is product 995242 doing well?" → called with weeks 90-102, no mention). System prompt v1 (src/retail_memory/agent/prompts.py) was written to address this, with four rules.
+- **System prompt v1 rules:**
+  1. Always call a tool to get numbers; never state a figure yourself.
+  2. If no tool matches, say so rather than answering from general knowledge.
+  3. If a required parameter is missing, either ask for clarification, or state the assumption explicitly in the reply. Never silently assume.
+  4. Never invent a product ID.
+- **Five-question comparison (router vs. Groq):**
+
+  | Q | Question | Router | Groq | Outcome |
+  |---|---|---|---|---|
+  | q1 | "total sales 995242, weeks 1-20" | SALES_SUMMARY | `get_sales_summary({995242, 1, 20})` | correct |
+  | q2 | "Is product 995242 doing well?" | UNKNOWN | `get_sales_summary({995242, 90, 102})` | **silent assumption** |
+  | q3 | "revenue from markdown on product X" | SALES_SUMMARY (wrong) | declined, asked for ID + margin | correct |
+  | q4 | "weather today?" | UNKNOWN | "I can't answer that with the available tools." | correct |
+  | q5 | "Should I discount product X?" | MARKDOWN | declined, asked for ID + margin | correct |
+
+- **The key finding: rule 3 did not work on q2.**
+  - Where rules 2 and 4 succeeded (q4 and q5 both followed them), the one rule requiring an explicit statement *before* a tool call failed.
+  - Structural cause: the tool-call path in the Groq/OpenAI API produces `tool_calls` as a separate field. When the model decides to call a tool, it doesn't emit a `content` reply. There is no opportunity to say "assuming the most recent 13 weeks" because the only output is the arguments.
+  - This is not a prompt-writing weakness. It's an API-shape constraint. Any system prompt that says "state your assumption before calling" is unenforceable through the tool-call path alone.
+
+- **Resolution paths for Day 15+ (agent loop):**
+  1. **Intercept and re-present.** The agent layer inspects tool calls before executing, and if a required parameter was not in the user's original question, it returns a clarification turn instead of executing. This requires the agent loop to distinguish "parameter was in the question" from "parameter was invented."
+  2. **Add a required `reasoning` parameter to each tool schema.** The model must produce text explaining the choice in the same payload as the args. Increases payload size but makes assumptions visible.
+  3. **Two-turn pattern.** First turn: model must produce a text reply that summarises its understanding. Second turn: execute. Doubles latency.
+
+  Option 1 is the cleanest. It's also where the design was already heading (the agent owns the loop, not the model).
+
+- **q3 resolved.** With `recommend_markdown` available, the D-012 ambiguous-overlap case is fixed: Groq declines and asks for clarification rather than confidently routing to sales. The router's failure (SALES_SUMMARY) is now demonstrably worse than the LLM's response.
+
+- **Trade-offs / what I'd revisit:**
+  - Prompt v1 is a live experiment, not a final version. Expect to iterate v2 after the agent loop is built (Day 15) and the re-presentation layer exists.
+  - No numeric eval score yet. Day 19 builds the eval harness that will turn this table into a pass rate.
+  - q4 was easy. A harder out-of-scope question ("what's the best price for competitor product Y?") would test rule 2 more stringently.
