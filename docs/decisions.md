@@ -250,15 +250,21 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 ### D-011: Three-way confidence taxonomy and elasticity guardrails
 - **Date:** 2026-10-10
 - **Context:** Ran `estimate_elasticity` on the 30 highest-volume candidates from the
-  Day 6 screen. Result: 21 low confidence, 8 high confidence, 1 insufficient. Of the
-  8 high, **zero** would produce a `recommend_markdown` "recommended" result, because
-  all 7 negative ones have |e| < 1 (inelastic). This confirms the revisit trigger named
-  in D-001 before any modeling was done.
+  Day 6 screen, using the post-hardening version of the function. Result: 22 low
+  confidence, 3 insufficient_data, 5 high confidence. Total 30. Of the 5 high
+  confidence, **zero** would produce a `recommend_markdown` "recommended" result,
+  because all 5 have |e| < 1 (inelastic). This confirms the revisit trigger named in
+  D-001 before any modeling was done.
 - **The three-way taxonomy (headline framing):**
-  1. **Low confidence (21):** "we can't tell if price matters." CI includes zero.
-  2. **High confidence but inelastic (7):** "price matters, but not enough to make
-     discounting profitable." |e| < 1. Correct answer is no discount.
-  3. **High confidence and elastic (0):** "discount is justified." None in the sample.
+  1. **Low confidence (22):** "we can't tell if price matters." CI includes zero or
+     sits inside the ±0.05 practical-significance band.
+  2. **Insufficient data (3):** refused by a guardrail — degenerate quantity,
+     singular matrix, positive coefficient, or too few weeks.
+  3. **High confidence but inelastic (5):** "price matters, but not enough to make
+     discounting profitable." |e| < 1. Correct answer is no discount. Products:
+     1127831 (e=−0.709), 1029743 (e=−0.387), 1058997 (e=−0.329),
+     923746 (e=−0.308), 916122 (e=−0.203).
+  4. **High confidence and elastic (0):** "discount is justified." None in the sample.
 - **Decision: ship `recommend_markdown` as built.** Refusing honestly on low power
   and on inelastic demand is correct behavior, not a bug. It matches the project's
   never-overclaim design. Sub-commodity or department-level pooling (the fix D-001
