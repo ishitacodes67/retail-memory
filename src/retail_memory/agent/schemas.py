@@ -26,3 +26,21 @@ GET_SALES_SUMMARY_TOOL = to_tool_definition(
     "for a specific product over a range of weeks (1-102).",
     GetSalesSummaryArgs,
 )
+
+
+class RecommendMarkdownArgs(BaseModel):
+    product_id: int = Field(description="The numeric product identifier")
+    margin: float = Field(
+        description="Assumed gross margin as a decimal, e.g. 0.3 for 30%", gt=0, lt=1
+    )
+
+
+RECOMMEND_MARKDOWN_TOOL = to_tool_definition(
+    "recommend_markdown",
+    "Recommend a discount depth for a product given an assumed profit margin. "
+    "Will refuse if the elasticity estimate isn't confident enough, or if demand "
+    "is too inelastic for a discount to be profit-optimal.",
+    RecommendMarkdownArgs,
+)
+
+ALL_TOOLS = [GET_SALES_SUMMARY_TOOL, RECOMMEND_MARKDOWN_TOOL]
