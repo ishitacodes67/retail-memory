@@ -42,7 +42,8 @@ PARAM_LABELS = {
 @dataclass(frozen=True)
 class AgentResponse:
     question: str
-    status: str  # "answered", "clarification_needed", "declined", "service_unavailable", "tool_error"
+    # One of: answered, clarification_needed, declined, service_unavailable, tool_error
+    status: str
     tool_called: str | None
     tool_args: dict | None
     invented_params: list[str]
