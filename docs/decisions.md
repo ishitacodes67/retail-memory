@@ -509,12 +509,13 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Clean cases for both tools: q1, q5, q10, q11, q13, q14, q17, q19 (8).
   - Behavior-under-uncertainty: q2, q3, q6, q9, q12, q15, q18, q20 (8). Covers clarification_needed, insufficient_data, no_discount_indicated, refused.
   - Refusals: q4, q7, q8, q16 (4). Out of scope, missing product ID, nonexistent product, competitor question.
-- **Baseline: 20/20 (100%) across three consecutive runs.** Above the NFR5 target of 80%.
+- **Baseline: 19/20 clean passes, 1/20 passing against a documented known limitation (q6, multi-intent).** Three consecutive runs, no flake after the q3 redesign. Tool-call correctness only; response-text quality is a separate, not-yet-built eval dimension. Above the NFR5 target of 80%.
 
 - **Finding 1: eval flakiness at temperature=0.**
   - With the original q3 wording, three runs gave 100%, 95%, 100%. Temperature 0 reduces variance but does not eliminate it.
   - Implication: any single eval run is one sample from a distribution. Meaningful pass rates need either three runs and a median, or every question sitting clearly on one side of any decision boundary.
   - Deliberately not adding run-3-median logic to the harness. The flake was fixed by redesigning the offending question, not by re-running until it passed.
+    - Why temp=0 isn't fully deterministic: on GPU-batched inference (which every major LLM API runs), floating-point addition is not strictly associative, and which requests get batched alongside yours on the same GPU pass can subtly change the order of operations. Tiny numerical differences can occasionally flip an argmax at a close decision boundary. A documented property of production LLM serving, not a flaw in the test methodology.
 
 - **Finding 2: the original q3 asked for a derived quantity no tool produces.**
   - Original wording: "How much revenue would a markdown on product 1127831 at 30% margin bring in?"
