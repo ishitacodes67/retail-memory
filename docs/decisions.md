@@ -471,3 +471,26 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Timeouts currently don't retry at all. If they become common, add a separate retry policy with a longer base delay.
   - The max-turns guard is future-proofing — today's loop only ever produces one tool call per turn.
   - Prompt rule 5 still says "state the ci_level value." If the model still invents a percentage with the field present, prompt rule 5 gets tightened to a hard format instruction, or the check moves into the agent loop's text validator.
+    - **Dropped multi-intent questions (found 2026-10-10).** The compound question
+    "What's the sales summary for product 1127831, and should I discount it
+    assuming a 30% margin?" got collapsed by Groq into a single
+    `get_sales_summary` call. The response addressed only the sales-summary half.
+    The second ask ("should I discount it") was silently dropped -- no
+    acknowledgement in the final text that the question had two parts. This is a
+    different failure mode from parallel tool calls: the API returned one call,
+    not two, and the agent has no notion that the user's question had multiple
+    intents. Named limitation, not fixed today. Adding multi-intent tracking
+    would require a message-level "asks" extraction pass before routing, which is
+    a design change worth its own day. Captured as a dedicated eval case for
+    Day 17 rather than folded into the invented-parameter story, since it tests
+    a different thing: not "did the API return multiple calls" but "did the
+    agent notice the question wanted multiple things."
+
+  - **Max-turns guard reachability.** With `parallel_tool_calls=False` set on both
+    API calls, the guard is not reachable in normal operation -- Groq should never
+    return more than one tool call per turn. It remains as defense-in-depth
+    against the API not honouring that flag. The guard becomes load-bearing again
+    only if `MAX_TOOL_CALLS_PER_QUESTION` and `parallel_tool_calls` are ever
+    raised together. Covered by
+    `test_max_turns_guard_fires_on_multiple_tool_calls`, which mocks a two-call
+    response so the guard's placement is verified by test, not just inspection.
