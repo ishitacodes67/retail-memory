@@ -494,3 +494,42 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
     raised together. Covered by
     `test_max_turns_guard_fires_on_multiple_tool_calls`, which mocks a two-call
     response so the guard's placement is verified by test, not just inspection.
+    
+---
+
+### D-017: Eval harness, 20-question baseline, and two findings on agent reliability
+- **Date:** 2026-10-12
+- **Context:** NFR5 targets an 80% agent eval pass rate. Needed a scored harness that runs a fixed question set through the live agent and reports pass/fail on tool-call correctness.
+- **Harness design:**
+  - `evals/questions.jsonl` -- 20 rows, one JSON object per question. Fields: `id`, `question`, `expected_tool` (string or null), `expected_args` (dict or null), `expected_status`, `notes`.
+  - `src/retail_memory/agent/evals.py` -- `run_evals()` reads the file, calls `answer_question` per row, scores via `_score()`, returns `EvalResult` list. `summarize()` formats a human-readable summary.
+  - `scripts/run_evals.py` -- thin runner.
+  - Scoring: `expected_tool` must equal actual tool (or both None). If `expected_args` is given, every key must match. `tests/test_evals.py` unit-tests `_score` in isolation.
+- **Coverage:** 20 questions across three categories.
+  - Clean cases for both tools: q1, q5, q10, q11, q13, q14, q17, q19 (8).
+  - Behavior-under-uncertainty: q2, q3, q6, q9, q12, q15, q18, q20 (8). Covers clarification_needed, insufficient_data, no_discount_indicated, refused.
+  - Refusals: q4, q7, q8, q16 (4). Out of scope, missing product ID, nonexistent product, competitor question.
+- **Baseline: 20/20 (100%) across three consecutive runs.** Above the NFR5 target of 80%.
+
+- **Finding 1: eval flakiness at temperature=0.**
+  - With the original q3 wording, three runs gave 100%, 95%, 100%. Temperature 0 reduces variance but does not eliminate it.
+  - Implication: any single eval run is one sample from a distribution. Meaningful pass rates need either three runs and a median, or every question sitting clearly on one side of any decision boundary.
+  - Deliberately not adding run-3-median logic to the harness. The flake was fixed by redesigning the offending question, not by re-running until it passed.
+
+- **Finding 2: the original q3 asked for a derived quantity no tool produces.**
+  - Original wording: "How much revenue would a markdown on product 1127831 at 30% margin bring in?"
+  - Five-run diagnosis: 2 runs called `recommend_markdown`, 3 runs declined with "I can't answer that with the available tools."
+  - Root cause: the question asks for the *revenue* impact of a markdown. Neither tool returns that. `get_sales_summary` returns historical sales; `recommend_markdown` returns discount depth and profit change. The 3 declined responses were correct -- the model honestly refused a question the tool suite cannot answer as phrased.
+  - Fix: reword to "Would marking down product 1127831 at a 30% margin help or hurt, given it's currently full price?" -- this asks the question `recommend_markdown` actually answers. 5/5 stable across reruns.
+  - Lesson: eval questions must be written against what the tools *actually* return, not against what sounds like a sensible question.
+
+- **Also in this commit:**
+  - `temperature=0` on both Groq calls in `answer_question`. Reduces (but does not eliminate) variance.
+  - `tool_error` status: if a tool raises `ValueError` (e.g. nonexistent product_id), the agent catches it and returns `status="tool_error"` with the error text, rather than propagating a crash. Tested in `test_tool_error_is_caught_and_returned_as_status`.
+  - `q8` expected_status changed from "answered" to "tool_error" to match correct behavior.
+
+- **Trade-offs / what I'd revisit:**
+  - The harness scores tool-call correctness, not final-text quality. A response with the right tool and args but a broken explanation still passes. The ci_level fabrication bug (D-016) would have passed this harness.
+  - 20 questions is a small baseline. Real coverage for a shipped agent would be 50-100.
+  - Model behavior at temperature=0 is not deterministic across runs. Three-run median should be the standard if this eval is quoted as a performance number.
+  - The multi-intent limitation (D-016) is present in q6 and scored as a pass because it matches current behavior. Correct for measuring regressions, but the eval rate doesn't reflect the known gap.
