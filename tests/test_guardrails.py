@@ -76,3 +76,34 @@ def test_max_turns_guard_fires_on_multiple_tool_calls():
     assert result.status != "answered"
     assert result.tool_called is None
     assert "tool calls" in result.final_text.lower()
+    
+
+def test_tool_error_is_caught_and_returned_as_status():
+    """If a tool raises ValueError (e.g. nonexistent product), the agent
+    returns a tool_error status rather than crashing."""
+    fake_response = MagicMock()
+    fake_response.choices[0].message.tool_calls = [
+        fake_tool_call(
+            "get_sales_summary",
+            '{"product_id":9999999,"start_week":1,"end_week":10}',
+        ),
+    ]
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_response
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE product (product_id BIGINT, commodity_desc VARCHAR)")
+    con.execute("""CREATE TABLE transactions (
+        product_id BIGINT, store_id BIGINT, week_no BIGINT,
+        quantity BIGINT, sales_value DOUBLE, retail_disc DOUBLE)""")
+    con.execute("""CREATE TABLE product_week (
+        product_id BIGINT, week_no BIGINT, total_quantity BIGINT,
+        net_revenue DOUBLE, list_revenue DOUBLE, n_transactions BIGINT,
+        discount_depth DOUBLE, is_price_promo_any_store BOOLEAN, is_featured BOOLEAN)""")
+    try:
+        result = answer_question(con, fake_client, "sales for 9999999 between weeks 1 and 10")
+    finally:
+        con.close()
+
+    assert result.status == "tool_error"
+    assert "No such product_id" in result.final_text

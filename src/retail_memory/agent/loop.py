@@ -1,6 +1,7 @@
 """The real agent loop: route -> validate params -> execute -> explain.
 See D-014 for invented-parameter interception.
 See D-016 for the retry/backoff, max-turns, and failure-handling guardrails.
+See D-017 for why temperature=0 (eval determinism).
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ PARAM_LABELS = {
 @dataclass(frozen=True)
 class AgentResponse:
     question: str
-    status: str  # "answered", "clarification_needed", "declined", "service_unavailable"
+    status: str  # "answered", "clarification_needed", "declined", "service_unavailable", "tool_error"
     tool_called: str | None
     tool_args: dict | None
     invented_params: list[str]
@@ -99,6 +100,7 @@ def _answer_question_inner(
             tools=ALL_TOOLS,
             tool_choice="auto",
             parallel_tool_calls=False,
+            temperature=0,
         )
     )
     msg = response.choices[0].message
@@ -129,7 +131,13 @@ def _answer_question_inner(
                               invented, clarification)
 
     tool_fn = TOOL_FUNCTIONS[call.function.name]
-    result = tool_fn(con, **args)
+    try:
+        result = tool_fn(con, **args)
+    except ValueError as e:
+        return AgentResponse(
+            question, "tool_error", call.function.name, args, [],
+            f"The tool couldn't process that request: {e}",
+        )
     result_json = json.dumps(asdict(result), default=str)
 
     follow_up = _call_with_retry(
@@ -161,6 +169,7 @@ def _answer_question_inner(
             ],
             tools=ALL_TOOLS,
             parallel_tool_calls=False,
+            temperature=0,
         )
     )
 
