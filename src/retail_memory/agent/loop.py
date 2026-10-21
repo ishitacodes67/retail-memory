@@ -1,12 +1,14 @@
 """The real agent loop: route -> validate params -> execute -> explain.
 See D-014 for invented-parameter interception.
 See D-016 for the retry/backoff, max-turns, and failure-handling guardrails.
-See D-017 for why temperature=0 (eval determinism).
+See D-017 for temperature=0 (eval determinism).
+See D-018 for system_prompt parameterization and structured logging.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import asdict, dataclass
@@ -19,6 +21,8 @@ from retail_memory.agent.prompts import SYSTEM_PROMPT_V1
 from retail_memory.agent.schemas import ALL_TOOLS
 from retail_memory.tools.markdown import recommend_markdown
 from retail_memory.tools.sales_summary import get_sales_summary
+
+logger = logging.getLogger("retail_memory.agent")
 
 MODEL = "openai/gpt-oss-120b"
 
@@ -48,10 +52,10 @@ class AgentResponse:
     tool_args: dict | None
     invented_params: list[str]
     final_text: str
+    tool_result: dict | None = None
 
 
 def _value_appears_in_text(value, text: str) -> bool:
-    """Over-conservative check: is this value literally present in the question?"""
     text_lower = text.lower()
     if isinstance(value, float) and 0 < value < 1:
         pct = int(round(value * 100))
@@ -65,7 +69,6 @@ def _invented_params(args: dict, question: str) -> list[str]:
 
 
 def _call_with_retry(fn, max_attempts: int = MAX_RETRY_ATTEMPTS):
-    """Retry a Groq call on rate limiting with exponential backoff (NFR8)."""
     for attempt in range(max_attempts):
         try:
             return fn()
@@ -75,11 +78,14 @@ def _call_with_retry(fn, max_attempts: int = MAX_RETRY_ATTEMPTS):
             time.sleep(RETRY_BASE_DELAY * (2 ** attempt))
 
 
-def answer_question(con: duckdb.DuckDBPyConnection, client: Groq, question: str) -> AgentResponse:
-    """Public entry point. Handles timeouts and connection errors distinctly
-    from rate limits (which retry inside _answer_question_inner)."""
+def answer_question(
+    con: duckdb.DuckDBPyConnection,
+    client: Groq,
+    question: str,
+    system_prompt: str = SYSTEM_PROMPT_V1,
+) -> AgentResponse:
     try:
-        return _answer_question_inner(con, client, question)
+        return _answer_question_inner(con, client, question, system_prompt)
     except groq.APITimeoutError as e:
         return AgentResponse(question, "service_unavailable", None, None, [],
                               f"Groq API timed out: {e}")
@@ -89,13 +95,16 @@ def answer_question(con: duckdb.DuckDBPyConnection, client: Groq, question: str)
 
 
 def _answer_question_inner(
-    con: duckdb.DuckDBPyConnection, client: Groq, question: str
+    con: duckdb.DuckDBPyConnection,
+    client: Groq,
+    question: str,
+    system_prompt: str,
 ) -> AgentResponse:
     response = _call_with_retry(
         lambda: client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_V1},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question},
             ],
             tools=ALL_TOOLS,
@@ -132,6 +141,7 @@ def _answer_question_inner(
                               invented, clarification)
 
     tool_fn = TOOL_FUNCTIONS[call.function.name]
+    start = time.monotonic()
     try:
         result = tool_fn(con, **args)
     except ValueError as e:
@@ -139,13 +149,19 @@ def _answer_question_inner(
             question, "tool_error", call.function.name, args, [],
             f"The tool couldn't process that request: {e}",
         )
-    result_json = json.dumps(asdict(result), default=str)
+    latency = round((time.monotonic() - start) * 1000)
+    logger.info(
+        f"tool_call: {call.function.name} args={args} latency_ms={latency} "
+        f"status={getattr(result, 'status', None)}"
+    )
+    result_dict = asdict(result)
+    result_json = json.dumps(result_dict, default=str)
 
     follow_up = _call_with_retry(
         lambda: client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_V1},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question},
                 {
                     "role": "assistant",
@@ -174,5 +190,19 @@ def _answer_question_inner(
         )
     )
 
-    return AgentResponse(question, "answered", call.function.name, args, [],
-                          follow_up.choices[0].message.content or "")
+    follow_up_msg = follow_up.choices[0].message
+    if follow_up_msg.tool_calls:
+        second_tool = follow_up_msg.tool_calls[0].function.name
+        return AgentResponse(
+            question, "multi_intent_blocked", call.function.name, args, [],
+            f"I executed {call.function.name} for the first part of your question. "
+            f"The model then tried to call {second_tool} for a second part, but this "
+            f"agent supports one tool call per question. Please ask about the second "
+            f"part separately.",
+            result_dict,
+        )
+    return AgentResponse(
+        question, "answered", call.function.name, args, [],
+        follow_up_msg.content or "",
+        result_dict,
+    )
