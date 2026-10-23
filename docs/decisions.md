@@ -558,3 +558,19 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Full multi-intent resolution requires either (a) sequential multi-turn tool calls within a single user question (a real Day 19+ feature), or (b) parallel tool calls with `parallel_tool_calls=True` and a handler that chains results. Both are deferred.
   - The v2 prompt file is kept for reference even though it doesn't work today. When multi-intent support lands, rule 6 becomes meaningful again.
   - The text-quality check currently only catches (i) empty text, (ii) fabricated confidence %. Other failure modes (wrong numbers, hallucinated explanations) are not caught. A fuller rubric is a future pass.
+  
+---
+
+### D-019: Cannibalization naive baseline (Day 19)
+- **Date:** 2026-10-23
+- **Context:** Following the elasticity methodology, the first step in cannibalization detection is a naive before/after comparison. The goal is to record a number before knowing it's wrong.
+- **Pair chosen:**
+  - **Promoted Product (A):** 1127831 (Strawberries, National brand)
+  - **Neighbor Product (B):** 860299 (Strawberries, National brand)
+  - **Rationale:** Same sub-commodity and brand tier, making them plausible substitutes. Product A has enough clean promo data (491 clean promo store-weeks across 24 weeks) to make a stable comparison.
+- **Naive methodology:** Compare the average units sold during Product A's promo weeks against the average units sold during all other weeks, for both A and B.
+- **Naive result:**
+  - Product A: +68.6% lift during promo weeks.
+  - Product B: -12.6% drop during A's promo weeks.
+- **Naive interpretation (to be broken on Day 20):** The promotion on A worked (+68.6%) and it stole roughly 12.6% of B's volume.
+- **Next step:** The naive before/after comparison ignores the baseline trend. Product A might be seasonally high in those weeks anyway, and Product B might be seasonally low. Day 20's job is to show why this -12.6% is biased and implement a difference-in-differences (DiD) approach to isolate the true cannibalization effect.
