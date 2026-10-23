@@ -578,3 +578,17 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 - **Trade-offs / what I'd revisit:**
   - Pooling: As seen in the elasticity work, single-product-pair analyses are underpowered. A future fix would pool data across multiple pairs of strawberry SKUs or across multiple categories to increase the sample size and statistical power.
   - Endogeneity: We still cannot rule out that deeper discounts on A were specifically timed for weeks when B was already selling poorly for unobserved reasons.
+  ### D-021: Continuous-depth regression and cannibalization verdict
+- **Date:** 2026-10-23
+- **Context:** Binary promo flags failed because the whole category is promoted in lockstep. We pivoted to a continuous discount depth regression.
+- **Methodology:** 
+  - Ran at the store-week grain (N=3,199). 
+  - Used the full panel of all weeks A was sold, allowing `depth_A` to be 0 in non-promo weeks (restoring the baseline).
+  - Used an `INNER JOIN` to restrict to the 99 stores that carry both products, preventing artificial stockout zeros.
+  - Wrapped the `smf.ols()` fit in a `SingularMatrixWarning` check (passed cleanly).
+- **Results:**
+  - Coefficient for A's discount depth: -0.047
+  - P-value: 0.2556
+  - 95% CI: [-0.129, 0.034]
+- **The Precision Problem:** The 0.887 correlation between A's and B's depths structurally inflates the standard errors. The category-wide promotion pattern limits how cleanly A's effect can be separated from B's.
+- **Verdict:** The point estimate is near zero and statistically insignificant. We cannot prove cannibalization. While the high collinearity widens the CI, the point estimate is so close to zero that the honest conclusion is a null result: deeper discounts on A do not meaningfully cannibalize B.
