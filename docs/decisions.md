@@ -561,16 +561,38 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   
 ---
 
-### D-019: Cannibalization naive baseline (Day 19)
+
+---
+
+### D-019: Naive cannibalization baseline (Day 19)
 - **Date:** 2026-10-23
-- **Context:** Following the elasticity methodology, the first step in cannibalization detection is a naive before/after comparison. The goal is to record a number before knowing it's wrong.
-- **Pair chosen:**
-  - **Promoted Product (A):** 1127831 (Strawberries, National brand)
-  - **Neighbor Product (B):** 860299 (Strawberries, National brand)
-  - **Rationale:** Same sub-commodity and brand tier, making them plausible substitutes. Product A has enough clean promo data (491 clean promo store-weeks across 24 weeks) to make a stable comparison.
-- **Naive methodology:** Compare the average units sold during Product A's promo weeks against the average units sold during all other weeks, for both A and B.
+- **Pair:** Promoted 1127831, Neighbor 860299 (both Strawberries, National brand, 16 OZ).
+- **Screening:** 491 clean promo store-weeks across 24 distinct weeks and 106 stores.
 - **Naive result:**
   - Product A: +68.6% lift during promo weeks.
   - Product B: -12.6% drop during A's promo weeks.
-- **Naive interpretation (to be broken on Day 20):** The promotion on A worked (+68.6%) and it stole roughly 12.6% of B's volume.
-- **Next step:** The naive before/after comparison ignores the baseline trend. Product A might be seasonally high in those weeks anyway, and Product B might be seasonally low. Day 20's job is to show why this -12.6% is biased and implement a difference-in-differences (DiD) approach to isolate the true cannibalization effect.
+- **Naive interpretation (to be broken):** Promo worked (+68.6%) and stole 12.6% of B's volume.
+
+---
+
+### D-020: DiD failure — category-wide promotions make binary cannibalization impossible
+- **Date:** 2026-10-23
+- **Context:** The naive -12.6% drop for B was suspected of being biased. We attempted a Difference-in-Differences fix using Product C (1135476) as a control.
+- **First DiD attempt:** `(B_during - B_baseline) - (C_during - C_baseline)`.
+  - Result: +64.4 units (a halo effect, not cannibalization).
+  - Root cause: Product B was also on promotion in the exact same weeks as A. The "change" in B was B's own promotion, not A's effect on B.
+- **Second attempt (clean DiD):** Restrict to store-weeks where B and C were at full price.
+  - Result: NULL. The join dropped all of A's promo weeks.
+- **Structural diagnostic:**
+  - During A's 24 promo weeks, control product C had **0 normal (non-promoted) store-weeks in 23 of those 24 weeks.**
+  - Product B showed the same pattern: in week 54, B had 26 promo store-weeks and only 6 normal store-weeks.
+- **Finding:** The retailer runs **category-wide promotions.** When Strawberries go on sale, all Strawberry SKUs go on sale together. There are no "clean" weeks where A is promoted but B and C are at full price.
+- **Conclusion:** A binary promo DiD is mathematically valid but structurally invalid for this dataset. The treatment (price promo) is correlated across products at the category level, making clean identification impossible with a binary flag.
+- **What a real fix would require:**
+  - Move from binary "promo status" to continuous "discount depth" as the treatment variable.
+  - Use a regression-based approach: `B_units ~ A_discount_depth + week_fe + C_units` where the coefficient on `A_discount_depth` captures the cannibalization effect at different discount intensities, even if B was also slightly discounted.
+  - This is a significant methodology change, not a fix to the current approach. It requires a new day of work.
+- **For the project story:** This is the third progressive failure. The naive comparison (Day 19) was biased by seasonality. The first DiD (+64.4) was biased by simultaneous promotion. The clean DiD couldn't be computed because the data doesn't have clean weeks. The final story is honest and defensible: "the dataset does not support binary cannibalization detection; the correct approach is continuous discount depth."
+- **Trade-offs / what I'd revisit:**
+  - The continuous-discount approach would require rewriting the model as a regression, likely with store FE, week FE, and product-level promotion intensity. That's a Day 21+ effort.
+  - The control product (C) is nearly perfectly correlated with A's promos. It's not a useless product; it's evidence the category is centralized.
