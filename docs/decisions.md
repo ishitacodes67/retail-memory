@@ -575,24 +575,14 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
 
 ---
 
-### D-020: DiD failure — category-wide promotions make binary cannibalization impossible
+### D-020: DiD failure, corrected numbers, and the verdict on category vs. store-wide effects
 - **Date:** 2026-10-23
-- **Context:** The naive -12.6% drop for B was suspected of being biased. We attempted a Difference-in-Differences fix using Product C (1135476) as a control.
-- **First DiD attempt:** `(B_during - B_baseline) - (C_during - C_baseline)`.
-  - Result: +64.4 units (a halo effect, not cannibalization).
-  - Root cause: Product B was also on promotion in the exact same weeks as A. The "change" in B was B's own promotion, not A's effect on B.
-- **Second attempt (clean DiD):** Restrict to store-weeks where B and C were at full price.
-  - Result: NULL. The join dropped all of A's promo weeks.
-- **Structural diagnostic:**
-  - During A's 24 promo weeks, control product C had **0 normal (non-promoted) store-weeks in 23 of those 24 weeks.**
-  - Product B showed the same pattern: in week 54, B had 26 promo store-weeks and only 6 normal store-weeks.
-- **Finding:** The retailer runs **category-wide promotions.** When Strawberries go on sale, all Strawberry SKUs go on sale together. There are no "clean" weeks where A is promoted but B and C are at full price.
-- **Conclusion:** A binary promo DiD is mathematically valid but structurally invalid for this dataset. The treatment (price promo) is correlated across products at the category level, making clean identification impossible with a binary flag.
-- **What a real fix would require:**
-  - Move from binary "promo status" to continuous "discount depth" as the treatment variable.
-  - Use a regression-based approach: `B_units ~ A_discount_depth + week_fe + C_units` where the coefficient on `A_discount_depth` captures the cannibalization effect at different discount intensities, even if B was also slightly discounted.
-  - This is a significant methodology change, not a fix to the current approach. It requires a new day of work.
-- **For the project story:** This is the third progressive failure. The naive comparison (Day 19) was biased by seasonality. The first DiD (+64.4) was biased by simultaneous promotion. The clean DiD couldn't be computed because the data doesn't have clean weeks. The final story is honest and defensible: "the dataset does not support binary cannibalization detection; the correct approach is continuous discount depth."
-- **Trade-offs / what I'd revisit:**
-  - The continuous-discount approach would require rewriting the model as a regression, likely with store FE, week FE, and product-level promotion intensity. That's a Day 21+ effort.
-  - The control product (C) is nearly perfectly correlated with A's promos. It's not a useless product; it's evidence the category is centralized.
+- **Context:** The naive -12.6% drop for B was suspected of being biased. We attempted a Difference-in-Differences (DiD) fix.
+- **Correction:** The initial DiD query was flawed. It used an `INNER JOIN` between B and C. Because C almost never sold, the join dropped 21 of A's 24 promo weeks, inflating B's average during-promo from 17.9 to 77.0. The Day 19 naive numbers (B: 17.9 during, 20.4 baseline) are the correct ones.
+- **The failed DiD attempt:** Even when calculating correctly, a binary DiD is impossible. During A's promo weeks, Product B was aggressively promoted too (e.g., 26 promo store-weeks vs 6 normal store-weeks in week 54). A "clean" comparison of non-promoted weeks was impossible because those weeks barely exist.
+- **Campaign clustering (not seasonality):** Product A's promo weeks (2-13, 28-33, 54-70, 95) span the whole dataset, but cluster in bursts. This is campaign clustering, not calendar seasonality.
+- **The Catalog-Wide Check:** To determine if this was a store-wide effect or a category-specific effect, we checked the promo rate of all other products during A's promo weeks.
+  - Overall baseline promo rate: 13.41%
+  - Promo rate during A's promo weeks: 13.71%
+  - **Verdict:** The store was not running a massive sale. The effect is **category-specific** (strawberries are promoted together).
+- **Conclusion:** Because the entire category is promoted simultaneously, binary promo flags cannot isolate cannibalization. The Day 21 pivot is confirmed: we must move to continuous discount depth.
