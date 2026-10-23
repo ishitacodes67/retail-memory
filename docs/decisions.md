@@ -590,5 +590,5 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Coefficient for A's discount depth: -0.047
   - P-value: 0.2556
   - 95% CI: [-0.129, 0.034]
-- **The Precision Problem:** The 0.887 correlation between A's and B's depths structurally inflates the standard errors. The category-wide promotion pattern limits how cleanly A's effect can be separated from B's.
-- **Verdict:** The point estimate is near zero and statistically insignificant. We cannot prove cannibalization. While the high collinearity widens the CI, the point estimate is so close to zero that the honest conclusion is a null result: deeper discounts on A do not meaningfully cannibalize B.
+- **The Precision Problem (Resolved):** We calculated the correlation between A's and B's discount depths on the exact 3,199-row regression panel. The correlation is **0.176**. (Note: This is much lower than the 0.887 seen in the promo-only subset, because the full panel includes hundreds of weeks where only one product is promoted, adding independent variation). 
+- **Verdict:** The point estimate is near zero (-0.047) and statistically insignificant. The wide confidence interval is *not* due to collinearity, but simply because the true effect is tiny and the observational data is noisy. We **cannot distinguish the effect from zero**. The honest conclusion is a null result: deeper discounts on A do not measurably cannibalize B.
