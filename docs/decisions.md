@@ -590,5 +590,8 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Coefficient for A's discount depth: -0.047
   - P-value: 0.2556
   - 95% CI: [-0.129, 0.034]
-- **The Precision Problem (Resolved):** We calculated the correlation between A's and B's discount depths on the exact 3,199-row regression panel. The correlation is **0.176**. (Note: This is much lower than the 0.887 seen in the promo-only subset, because the full panel includes hundreds of weeks where only one product is promoted, adding independent variation). 
+- **The Precision Problem (Corrected):** The full-panel correlation between A's and B's depths is **0.176**. This is not simply "noise washing out a relationship." It is the net result of two opposing mechanisms:
+  - Joint zeros (weeks where neither product is promoted) pull the correlation *up* (because both being near zero is still linear co-movement).
+  - One-sided weeks (weeks where exactly one product is promoted) pull the correlation *down* sharply.
+  The net 0.176 means the one-sided weeks dominate. This confirms genuine asymmetric promotional timing exists between A and B, not just a lack of data.
 - **Verdict:** The point estimate is near zero (-0.047) and statistically insignificant. The wide confidence interval is *not* due to collinearity, but simply because the true effect is tiny and the observational data is noisy. We **cannot distinguish the effect from zero**. The honest conclusion is a null result: deeper discounts on A do not measurably cannibalize B.
