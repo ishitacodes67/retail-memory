@@ -1,26 +1,4 @@
-"""Derive product x store x week and product x week promo tables from the loaded raw tables.
-
-Defines what counts as a "promo week" for a product:
-
-  - is_price_promo: the volume-weighted discount off list price that week is at
-    least `threshold`. Threshold chosen as 0.35; see docs/decisions.md, D-004.
-  - is_featured: the product had any causal_data row that week (a display or
-    mailer placement). Coarse on its own (see docs/data-notes.md, Day 3 Test C);
-    kept as a secondary flag, not the primary promo definition.
-
-Builds two tables:
-
-  - product_store_week: one row per product x store x week. Use for anything
-    that needs store-level detail (Week 4 cannibalization, diff-in-diff).
-  - product_week: one row per product x week, summed across all stores. Use for
-    anything that needs a true count of distinct weeks (get_sales_summary,
-    elasticity candidate screening). Added in D-006: the previous version of
-    get_sales_summary counted store-weeks where it needed calendar weeks.
-
-Run after retail_memory.data.load.build_database:
-
-    python -m retail_memory.data.promo
-"""
+"""Derive product x store x week and product x week promo tables from the loaded raw tables."""
 
 from __future__ import annotations
 
@@ -34,13 +12,7 @@ DEFAULT_THRESHOLD = 0.35
 
 
 def build_promo_table(con: duckdb.DuckDBPyConnection, threshold: float = DEFAULT_THRESHOLD) -> int:
-    """Create/replace the `product_store_week` table. Returns its row count.
-
-    Requires `transactions` and `causal` to already exist (see
-    retail_memory.data.load.build_database). retail_disc is clipped to at most
-    zero before use (D-003): a handful of rows carry an anomalous positive value,
-    and without clipping that produces a negative, nonsensical list price.
-    """
+    """Create/replace the `product_store_week` table."""
     con.execute(
         """
         CREATE OR REPLACE TABLE product_store_week AS
@@ -80,26 +52,7 @@ def build_promo_table(con: duckdb.DuckDBPyConnection, threshold: float = DEFAULT
 def build_product_week_table(
     con: duckdb.DuckDBPyConnection, threshold: float = DEFAULT_THRESHOLD
 ) -> int:
-    """Create/replace `product_week`: one row per product per week, summed across
-    all stores. Use this (not product_store_week) whenever you need a true count
-    of distinct weeks -- e.g. get_sales_summary, or screening products for
-    elasticity fitting. product_store_week stays the right table for anything
-    that needs store-level detail (Week 4 cannibalization).
-
-    Promo and feature flags are defined at the STORE level first, then
-    aggregated with ANY: a product is "on promo this week" if at least one store
-    had discount_depth >= threshold for it that week. This preserves the
-    store-level threshold instead of re-applying it to a volume-weighted
-    average across all stores, which would dilute the signal.
-
-    The flag is named `is_price_promo_any_store` to make the ANY-store semantics
-    visible. `product_store_week.is_price_promo` remains the per-store flag and
-    is the primary definition for Week 4 cannibalization work (D-004).
-
-    The `discount_depth` column here is still the aggregate across stores, kept
-    for reference. It is NOT the value used for the promo flag. Anything that
-    needs the store-level depth should read product_store_week.
-    """
+    """Create/replace `product_week`: one row per product per week, summed across all stores."""
     con.execute(
         """
         CREATE OR REPLACE TABLE product_week AS
@@ -142,6 +95,20 @@ def build_product_week_table(
     return con.sql("SELECT COUNT(*) FROM product_week").fetchone()[0]
 
 
+def build_quantity_profile_table(con: duckdb.DuckDBPyConnection) -> int:
+    """One row per product: share of transactions with quantity=1 (D-008 guardrail input)."""
+    con.execute("""
+        CREATE OR REPLACE TABLE product_quantity_profile AS
+        SELECT product_id,
+               COUNT(*) AS n_transactions,
+               AVG((quantity = 1)::INT) AS pct_quantity_eq_1
+        FROM transactions
+        WHERE quantity > 0
+        GROUP BY product_id
+    """)
+    return con.sql("SELECT COUNT(*) FROM product_quantity_profile").fetchone()[0]
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build the promo tables.")
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
@@ -152,10 +119,12 @@ def main(argv: list[str] | None = None) -> None:
     try:
         n_psw = build_promo_table(con, args.threshold)
         n_pw = build_product_week_table(con, args.threshold)
+        n_profile = build_quantity_profile_table(con)
     finally:
         con.close()
     print(f"Built product_store_week: {n_psw:,} rows (threshold={args.threshold:.0%})")
     print(f"Built product_week:       {n_pw:,} rows (threshold={args.threshold:.0%})")
+    print(f"Built product_quantity_profile: {n_profile:,} rows")
 
 
 if __name__ == "__main__":

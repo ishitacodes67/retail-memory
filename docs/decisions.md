@@ -558,3 +558,40 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Full multi-intent resolution requires either (a) sequential multi-turn tool calls within a single user question (a real Day 19+ feature), or (b) parallel tool calls with `parallel_tool_calls=True` and a handler that chains results. Both are deferred.
   - The v2 prompt file is kept for reference even though it doesn't work today. When multi-intent support lands, rule 6 becomes meaningful again.
   - The text-quality check currently only catches (i) empty text, (ii) fabricated confidence %. Other failure modes (wrong numbers, hallucinated explanations) are not caught. A fuller rubric is a future pass.
+  ### D-021: Continuous-depth feasibility check and verdict
+- **Date:** 2026-10-23
+- **Context:** The binary DiD failed because the entire category is promoted in clustered campaigns. The proposed fix was to use continuous discount depth in a regression. Before building the regression, we ran a feasibility check to see if there was enough independent variation in discount depth across SKUs.
+- **The Correlation Check:** During the 15 weeks where both A and B had data, the correlation of their discount depths was **0.887**. 
+- **The Category Spread:** Looking at the standard deviation of discount depths across all strawberry SKUs in each promo week, most weeks have a std dev between **0.03 and 0.08**. 
+- **Verdict:** The category is promoted in *lockstep timing*, but not *lockstep depth*. There is meaningful independent variation (e.g., week 8 had A at 5% and B at 0%). 
+- **Decision:** Proceed with building the continuous-depth regression. The model will be: `log(B_quantity) ~ A_discount_depth + B_discount_depth + C(week_no)`. This controls for B's own promotions (fixing the Day 20 contamination) and uses week fixed effects to absorb the clustered campaign timing.
+### D-021: Continuous-depth regression and cannibalization verdict
+- **Date:** 2026-10-23
+- **Context:** Binary promo flags failed because the whole category is promoted in lockstep. We pivoted to a continuous discount depth regression: `log(B_quantity) ~ A_discount_depth + B_discount_depth + C(week_no)`.
+- **Methodology:** Ran at the store-week grain (N=491) using a `LEFT JOIN` to ensure missing B sales were logged as 0. Used store-clustered standard errors to account for repeated store observations.
+- **Results:**
+  - Coefficient for A's discount depth: -0.545
+  - P-value: 0.3159
+  - 95% CI: [-1.61, 0.52]
+- **Verdict:** The point estimate is negative, but the effect is not statistically significant (p > 0.05, CI includes zero). 
+- **Conclusion:** We cannot statistically prove cannibalization for this pair in this dataset. While the methodology is now technically correct, the remaining cross-store variation in discount depth is too noisy to produce a significant result.
+- **Trade-offs / what I'd revisit:**
+  - Pooling: As seen in the elasticity work, single-product-pair analyses are underpowered. A future fix would pool data across multiple pairs of strawberry SKUs or across multiple categories to increase the sample size and statistical power.
+  - Endogeneity: We still cannot rule out that deeper discounts on A were specifically timed for weeks when B was already selling poorly for unobserved reasons.
+  ### D-021: Continuous-depth regression and cannibalization verdict
+- **Date:** 2026-10-23
+- **Context:** Binary promo flags failed because the whole category is promoted in lockstep. We pivoted to a continuous discount depth regression.
+- **Methodology:** 
+  - Ran at the store-week grain (N=3,199). 
+  - Used the full panel of all weeks A was sold, allowing `depth_A` to be 0 in non-promo weeks (restoring the baseline).
+  - Used an `INNER JOIN` to restrict to the 99 stores that carry both products, preventing artificial stockout zeros.
+  - Wrapped the `smf.ols()` fit in a `SingularMatrixWarning` check (passed cleanly).
+- **Results:**
+  - Coefficient for A's discount depth: -0.047
+  - P-value: 0.2556
+  - 95% CI: [-0.129, 0.034]
+- **The Precision Problem (Corrected):** The full-panel correlation between A's and B's depths is **0.176**. This is not simply "noise washing out a relationship." It is the net result of two opposing mechanisms:
+  - Joint zeros (weeks where neither product is promoted) pull the correlation *up* (because both being near zero is still linear co-movement).
+  - One-sided weeks (weeks where exactly one product is promoted) pull the correlation *down* sharply.
+  The net 0.176 means the one-sided weeks dominate. This confirms genuine asymmetric promotional timing exists between A and B, not just a lack of data.
+- **Verdict:** The point estimate is near zero (-0.047) and statistically insignificant. The wide confidence interval is *not* due to collinearity, but simply because the true effect is tiny and the observational data is noisy. We **cannot distinguish the effect from zero**. The honest conclusion is a null result: deeper discounts on A do not measurably cannibalize B.

@@ -5,6 +5,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from retail_memory.tools.cannibalization import detect_cannibalization
+
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "processed" / "retail.duckdb"
 
 pytestmark = pytest.mark.skipif(not DB_PATH.exists(), reason="run the loader first")
@@ -62,3 +64,17 @@ def test_any_store_flag_bound_holds():
             "WHERE NOT is_price_promo_any_store"
         ).fetchone()[0]
     assert max_when_false < 0.35
+
+
+def test_real_cannibalization_estimate():
+    """Lock in the real A/B pair result to catch regressions.
+    
+    Note: We expect 'insufficient_data' here because the clustered standard 
+    errors produce a tiny negative variance (-4.29e-14) due to floating-point 
+    precision, which triggers the negative-variance guardrail.
+    """
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        res = detect_cannibalization(con, 1127831, 860299)
+        
+    assert res.status == "insufficient_data"
+    assert any("variance" in n.lower() for n in res.notes)

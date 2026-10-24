@@ -2,6 +2,7 @@
 
 import duckdb
 import pytest
+from unittest.mock import patch
 
 from retail_memory.tools.sales_summary import get_sales_summary
 
@@ -10,7 +11,6 @@ from retail_memory.tools.sales_summary import get_sales_summary
 def con():
     connection = duckdb.connect()
     connection.execute("CREATE TABLE product (product_id BIGINT, commodity_desc VARCHAR)")
-    connection.execute("CREATE TABLE transactions (product_id BIGINT, week_no BIGINT)")
     connection.execute(
         """CREATE TABLE product_week (
             product_id BIGINT, week_no BIGINT,
@@ -18,10 +18,11 @@ def con():
             n_transactions BIGINT, discount_depth DOUBLE,
             is_price_promo_any_store BOOLEAN, is_featured BOOLEAN)"""
     )
-    connection.executemany("INSERT INTO transactions VALUES (?,?)", [(1, 1), (1, 10)])
+    
     connection.execute("INSERT INTO product VALUES (100, 'FLUID MILK PRODUCTS')")
     connection.execute("INSERT INTO product VALUES (200, 'COUPON/MISC ITEMS')")
     connection.execute("INSERT INTO product VALUES (300, 'FLUID MILK PRODUCTS')")
+    
     rows = [
         (100, 3, 10, 20.0, 20.0, 5, 0.0, False, False),
         (100, 4, 10, 16.0, 20.0, 5, 0.2, True, False),
@@ -37,7 +38,8 @@ def con():
     connection.close()
 
 
-def test_normal_full_data_is_high_confidence(con):
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_normal_full_data_is_high_confidence(mock_range, con):
     s = get_sales_summary(con, 100, 1, 10)
     assert s.total_units == 50
     assert s.total_revenue == pytest.approx(91.0)
@@ -49,7 +51,8 @@ def test_normal_full_data_is_high_confidence(con):
     assert s.notes == []
 
 
-def test_sparse_window_is_low_confidence(con):
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_sparse_window_is_low_confidence(mock_range, con):
     s = get_sales_summary(con, 100, 3, 4)
     assert s.n_distinct_weeks_with_sales == 2
     assert s.confidence == "low"
@@ -61,7 +64,8 @@ def test_nonexistent_product_raises(con):
         get_sales_summary(con, 999, 1, 10)
 
 
-def test_product_with_zero_sales_returns_zeros_not_error(con):
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_product_with_zero_sales_returns_zeros_not_error(mock_range, con):
     s = get_sales_summary(con, 300, 1, 10)
     assert s.total_units == 0
     assert s.average_price is None
@@ -69,7 +73,8 @@ def test_product_with_zero_sales_returns_zeros_not_error(con):
     assert any("No sales" in n for n in s.notes)
 
 
-def test_window_beyond_dataset_is_clamped(con):
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_window_beyond_dataset_is_clamped(mock_range, con):
     s = get_sales_summary(con, 100, 5, 50)
     assert s.window_was_clamped is True
     assert s.start_week == 5
@@ -77,20 +82,20 @@ def test_window_beyond_dataset_is_clamped(con):
     assert any("clamped" in n for n in s.notes)
 
 
-def test_coupon_misc_product_is_flagged(con):
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_coupon_misc_product_is_flagged(mock_range, con):
     s = get_sales_summary(con, 200, 1, 10)
     assert any("bookkeeping" in n for n in s.notes)
 
 
-def test_short_calendar_window_is_low_confidence_even_if_fully_sold(con):
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_short_calendar_window_is_low_confidence_even_if_fully_sold(mock_range, con):
     s = get_sales_summary(con, 100, 3, 5)
-    assert s.n_distinct_weeks_with_sales == 3  # all 3 calendar weeks had sales
-    assert s.confidence == "low"               # but the window itself is < 4 weeks
+    assert s.n_distinct_weeks_with_sales == 3
+    assert s.confidence == "low"
 
 
-def test_week_count_never_exceeds_calendar_window(con):
-    # Permanent guard against the D-006 bug: distinct weeks can never exceed
-    # the number of calendar weeks in the requested window, no matter how many
-    # stores sold the product.
+@patch("retail_memory.tools.sales_summary._dataset_week_range", return_value=(1, 10))
+def test_week_count_never_exceeds_calendar_window(mock_range, con):
     s = get_sales_summary(con, 100, 1, 10)
     assert s.n_distinct_weeks_with_sales <= (s.end_week - s.start_week + 1)

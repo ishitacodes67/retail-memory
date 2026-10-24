@@ -14,20 +14,7 @@ COUPON_MISC_COMMODITY = "COUPON/MISC ITEMS"
 
 @dataclass(frozen=True)
 class SalesSummary:
-    """Result of get_sales_summary. All money figures use net price (D-003):
-    what the customer actually paid, not list price.
-
-    Source grain: this reads `product_week`, which is one row per product per
-    week. So the `n_*` counts below are distinct calendar-week counts, not
-    store-week counts. See D-006 for why that distinction matters.
-
-    The `n_distinct_promo_weeks` field counts weeks where
-    `is_price_promo_any_store` was true -- i.e. at least one store had a
-    discount depth >= 0.35 that week. See D-006 for why the flag is named that
-    way, and why `product_store_week.is_price_promo` (per-store) is the
-    authoritative flag for Week 4 cannibalization.
-    """
-
+    """Result of get_sales_summary. All money figures use net price (D-003)."""
     product_id: int
     requested_start_week: int
     requested_end_week: int
@@ -45,17 +32,13 @@ class SalesSummary:
 
 
 def _dataset_week_range(con: duckdb.DuckDBPyConnection) -> tuple[int, int]:
-    return con.sql("SELECT MIN(week_no), MAX(week_no) FROM transactions").fetchone()
+    return con.sql("SELECT MIN(week_no), MAX(week_no) FROM product_week").fetchone()
 
 
 def get_sales_summary(
     con: duckdb.DuckDBPyConnection, product_id: int, start_week: int, end_week: int
 ) -> SalesSummary:
-    """Summarize a product's sales over a week window, across all stores.
-
-    Raises:
-        ValueError: if product_id does not exist in the product table.
-    """
+    """Summarize a product's sales over a week window, across all stores."""
     if con.sql(
         "SELECT 1 FROM product WHERE product_id = ?", params=[product_id]
     ).fetchone() is None:
