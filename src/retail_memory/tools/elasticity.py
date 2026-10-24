@@ -16,7 +16,7 @@ QUANTITY_DEGENERATE_THRESHOLD = 0.90    # D-008: banana case
 MIN_WEEKS_FOR_ESTIMATE = 20
 NEAR_UNIFORM_PRICE_SD = 0.01            # Day 8 diagnostic threshold
 PRACTICAL_SIGNIFICANCE_EPSILON = 0.05   # D-011: CI must clear this band
-CI_LEVEL = 0.95  # matches statsmodels' default alpha=0.05
+CI_LEVEL = 0.95                         # D-016: statsmodels default alpha=0.05
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,6 @@ class ElasticityEstimate:
     df_resid: int | None
     notes: list[str]
     ci_level: float | None = None
-
 
 
 def _quantity_is_degenerate(con, product_id: int) -> bool:
@@ -60,11 +59,10 @@ def _is_centralized_pricing(con, product_id: int) -> bool:
 
 
 def _fit_checked(formula: str, data, cluster_groups=None):
-    """Fit an OLS model; return (model, warning_flag).
+    """Fit an OLS model; return (model, singular_flag).
 
-    warning_flag is True if a SingularMatrixWarning fired, meaning the design
-    matrix was rank-deficient and the coefficients are not uniquely determined.
-    Caller should treat that as a refusal, not a valid fit.
+    singular_flag is True if a SingularMatrixWarning fired OR if the covariance
+    matrix diagonal contains negative, NaN, or infinite values (near-singular).
     """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -74,9 +72,20 @@ def _fit_checked(formula: str, data, cluster_groups=None):
             )
         else:
             model = smf.ols(formula, data=data).fit()
+        
+        # 1. Catch explicit SingularMatrixWarning
         singular = any(
             issubclass(w.category, SingularMatrixWarning) for w in caught
         )
+        
+        # 2. Deterministic check for near-singularity / negative variance
+        try:
+            cov_diag = np.diag(model.cov_params())
+            if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
+                singular = True
+        except Exception:
+            singular = True
+            
     return model, singular
 
 
@@ -138,16 +147,31 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
 
     if singular:
         notes.append(
-            "Rank-deficient design matrix (SingularMatrixWarning). Coefficients are "
-            "not uniquely determined; refusing rather than reporting an unreliable number."
+            "Rank-deficient design matrix or invalid variance (negative/NaN). "
+            "Coefficients are not uniquely determined; refusing rather than "
+            "reporting an unreliable number."
         )
         return ElasticityEstimate(
             product_id, "refused", None, None, None, "insufficient_data",
             n_weeks, int(model.df_resid), notes,
         )
 
-    coef = model.params["log_price"]
-    ci_low, ci_high = model.conf_int().loc["log_price"]
+    try:
+        coef = model.params["log_price"]
+        ci = model.conf_int().loc["log_price"]
+        if len(ci) != 2 or np.isnan(ci[0]) or np.isnan(ci[1]) or np.isnan(coef):
+            notes.append("Confidence interval or coefficient is NaN. Refusing.")
+            return ElasticityEstimate(
+                product_id, "refused", None, None, None, "insufficient_data",
+                n_weeks, int(model.df_resid), notes,
+            )
+        ci_low, ci_high = ci[0], ci[1]
+    except Exception as e:
+        notes.append(f"Failed to extract coefficient/CI: {e}")
+        return ElasticityEstimate(
+            product_id, "refused", None, None, None, "insufficient_data",
+            n_weeks, int(model.df_resid), notes,
+        )
 
     if coef > 0 and ci_low > 0:
         notes.append(
@@ -176,6 +200,5 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
 
     return ElasticityEstimate(
         product_id, method, float(coef), float(ci_low), float(ci_high),
-        confidence, n_weeks, int(model.df_resid), notes,
-        ci_level=CI_LEVEL,
+        confidence, n_weeks, int(model.df_resid), notes, ci_level=CI_LEVEL,
     )
