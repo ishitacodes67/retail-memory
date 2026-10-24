@@ -44,3 +44,14 @@ RECOMMEND_MARKDOWN_TOOL = to_tool_definition(
 )
 
 ALL_TOOLS = [GET_SALES_SUMMARY_TOOL, RECOMMEND_MARKDOWN_TOOL]
+class DetectCannibalizationArgs(BaseModel):
+    promoted_product_id: int = Field(description="The numeric product identifier of the promoted product")
+    neighbor_product_id: int = Field(description="The numeric product identifier of the neighbor product")
+
+DETECT_CANNIBALIZATION_TOOL = to_tool_definition(
+    "detect_cannibalization",
+    "Estimate the sales shift on a neighbor product during a promoted product's discount.",
+    DetectCannibalizationArgs,
+)
+
+ALL_TOOLS = [GET_SALES_SUMMARY_TOOL, RECOMMEND_MARKDOWN_TOOL, DETECT_CANNIBALIZATION_TOOL]

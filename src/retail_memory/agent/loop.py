@@ -206,3 +206,10 @@ def _answer_question_inner(
         follow_up_msg.content or "",
         result_dict,
     )
+from retail_memory.tools.cannibalization import detect_cannibalization
+
+TOOL_FUNCTIONS = {
+    "get_sales_summary": get_sales_summary,
+    "recommend_markdown": recommend_markdown,
+    "detect_cannibalization": detect_cannibalization,
+}
