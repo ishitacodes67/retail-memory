@@ -45,20 +45,24 @@ def _get_shared_stores(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> 
 
 
 def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> float | None:
+    """Calculate the correlation of depths on the exact same full panel 
+    used by the regression (all weeks A was sold, matched stores, B filled with 0)."""
     query = f"""
-        WITH promo_weeks AS (
-            SELECT DISTINCT week_no FROM product_store_week
-            WHERE product_id = {id_a} AND is_price_promo AND NOT is_featured
+        WITH a_data AS (
+            SELECT store_id, week_no, discount_depth AS depth_A
+            FROM product_store_week WHERE product_id = {id_a}
         ),
-        a_depth AS (
-            SELECT week_no, AVG(discount_depth) AS d_a FROM product_store_week
-            WHERE product_id = {id_a} AND week_no IN (SELECT week_no FROM promo_weeks) GROUP BY week_no
-        ),
-        b_depth AS (
-            SELECT week_no, AVG(discount_depth) AS d_b FROM product_store_week
-            WHERE product_id = {id_b} AND week_no IN (SELECT week_no FROM promo_weeks) GROUP BY week_no
+        b_data AS (
+            SELECT store_id, week_no, discount_depth AS depth_B
+            FROM product_store_week WHERE product_id = {id_b}
         )
-        SELECT CORR(d_a, d_b) FROM a_depth JOIN b_depth USING (week_no)
+        SELECT CORR(a.depth_A, COALESCE(b.depth_B, 0)) AS corr
+        FROM a_data a
+        INNER JOIN (SELECT DISTINCT store_id FROM b_data) b_stores 
+            ON a.store_id = b_stores.store_id
+        LEFT JOIN b_data b 
+            ON a.store_id = b.store_id 
+           AND a.week_no = b.week_no
     """
     res = con.sql(query).fetchone()[0]
     if res is not None and math.isnan(res):
@@ -167,14 +171,17 @@ def detect_cannibalization(
                 )
             
             # 2. Deterministic check for numerical instability (Negative Variance)
-            cov_diag = np.diag(model.cov_params())
-            if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
-                notes.append("Negative or NaN variance in covariance matrix. "
-                             "Standard errors are invalid; refusing.")
-                return CannibalizationEstimate(
-                    promoted_product_id, neighbor_product_id, "insufficient_data",
-                    None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
-                )
+            try:
+                cov_diag = np.diag(model.cov_params())
+                if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
+                    notes.append("Negative or NaN variance in covariance matrix. "
+                                 "Standard errors are invalid; refusing.")
+                    return CannibalizationEstimate(
+                        promoted_product_id, neighbor_product_id, "insufficient_data",
+                        None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
+                    )
+            except Exception:
+                pass
 
             coef = model.params["depth_A"]
             ci = model.conf_int().loc["depth_A"]

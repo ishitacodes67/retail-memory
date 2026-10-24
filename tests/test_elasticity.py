@@ -12,44 +12,51 @@ N_WEEKS, N_STORES = 40, 20
 @pytest.fixture
 def con():
     connection = duckdb.connect()
-    connection.execute("CREATE TABLE product (product_id BIGINT, curr_size_of_product VARCHAR)")
-    connection.execute("""CREATE TABLE product_week (
-        product_id BIGINT, week_no BIGINT, total_quantity BIGINT,
-        net_revenue DOUBLE, list_revenue DOUBLE, n_transactions BIGINT,
-        discount_depth DOUBLE, is_price_promo_any_store BOOLEAN, is_featured BOOLEAN)""")
+    
+    connection.execute("CREATE TABLE product (product_id BIGINT, commodity_desc VARCHAR)")
+    connection.execute("CREATE TABLE transactions (product_id BIGINT, week_no BIGINT)")
+    connection.execute(
+        """CREATE TABLE product_week (
+            product_id BIGINT, week_no BIGINT,
+            total_quantity BIGINT, net_revenue DOUBLE, list_revenue DOUBLE,
+            n_transactions BIGINT, discount_depth DOUBLE,
+            is_price_promo_any_store BOOLEAN, is_featured BOOLEAN)"""
+    )
     connection.execute("""CREATE TABLE product_store_week (
         product_id BIGINT, store_id BIGINT, week_no BIGINT, total_quantity BIGINT,
         net_revenue DOUBLE, list_revenue DOUBLE, n_transactions BIGINT,
         discount_depth DOUBLE, is_price_promo BOOLEAN, is_featured BOOLEAN)""")
-    connection.execute("CREATE TABLE transactions (product_id BIGINT, store_id BIGINT, "
-                        "week_no BIGINT, quantity BIGINT, sales_value DOUBLE, retail_disc DOUBLE)")
+    connection.execute("""CREATE TABLE product_quantity_profile (
+        product_id BIGINT, n_transactions BIGINT, pct_quantity_eq_1 DOUBLE)""")
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(42)
 
-    # Product 100: normal, decentralized, enough weeks -> two_way_fe branch
-    connection.execute("INSERT INTO product VALUES (100, '12 OZ')")
-    rows_sw, rows_txn = [], []
-    for w in range(N_WEEKS):
-        for s in range(N_STORES):
-            q = int(rng.integers(5, 20))
+    # Product 100: normal, 40 weeks, decentralized -> two_way_fe
+    connection.execute("INSERT INTO product VALUES (100, 'FLUID MILK')")
+    connection.execute("INSERT INTO product_quantity_profile VALUES (100, 100, 0.1)")
+    
+    rows_pw = [(100, w, 20, 30.0, 30.0, 1, 0.0, False, False) for w in range(1, 41)]
+    connection.executemany("INSERT INTO product_week VALUES (?,?,?,?,?,?,?,?,?)", rows_pw)
+
+    rows_sw = []
+    for w in range(1, 41):
+        for s in range(20):
+            # Add random noise to quantity and depth so the regression converges
+            qty = int(rng.integers(5, 20))
+            depth = float(rng.uniform(0.0, 0.4))
             price = round(float(rng.uniform(1.0, 2.0)), 2)
-            rows_sw.append((100, s, w, q, q * price, q * price, 1, 0.0, False, False))
-            rows_txn.append((100, s, w, q, q * price, 0.0))
+            rows_sw.append((100, s, w, qty, qty * price, qty * price, 1, depth, False, False))
     connection.executemany("INSERT INTO product_store_week VALUES (?,?,?,?,?,?,?,?,?,?)", rows_sw)
-    connection.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?)", rows_txn)
 
-    # Product 200: degenerate quantity (banana pattern) -> refused
+    # Product 200: degenerate quantity -> refused
     connection.execute("INSERT INTO product VALUES (200, '40 LB')")
-    rows_txn2 = [(200, s, w, 1, round(float(rng.uniform(5, 8)), 2), 0.0)
-                 for w in range(N_WEEKS) for s in range(N_STORES)]
-    connection.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?)", rows_txn2)
+    connection.execute("INSERT INTO product_quantity_profile VALUES (200, 100, 0.95)")
 
     # Product 300: too few weeks -> refused
     connection.execute("INSERT INTO product VALUES (300, '1 LB')")
-    connection.executemany(
-        "INSERT INTO transactions VALUES (?,?,?,?,?,?)",
-        [(300, 1, w, 5, 10.0, 0.0) for w in range(2)],
-    )
+    connection.execute("INSERT INTO product_quantity_profile VALUES (300, 100, 0.1)")
+    rows_pw_300 = [(300, w, 10, 20.0, 20.0, 1, 0.0, False, False) for w in range(1, 6)]
+    connection.executemany("INSERT INTO product_week VALUES (?,?,?,?,?,?,?,?,?)", rows_pw_300)
 
     yield connection
     connection.close()
