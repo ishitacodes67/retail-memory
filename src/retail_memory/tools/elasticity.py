@@ -34,12 +34,11 @@ class ElasticityEstimate:
 
 
 def _quantity_is_degenerate(con, product_id: int) -> bool:
-    total, ones = con.sql(
-        "SELECT COUNT(*), SUM((quantity=1)::INT) FROM transactions "
-        "WHERE product_id = ? AND quantity > 0",
+    row = con.sql(
+        "SELECT pct_quantity_eq_1 FROM product_quantity_profile WHERE product_id = ?",
         params=[product_id],
     ).fetchone()
-    return (ones / total) > QUANTITY_DEGENERATE_THRESHOLD if total else True
+    return row is None or row[0] > QUANTITY_DEGENERATE_THRESHOLD
 
 
 def _is_centralized_pricing(con, product_id: int) -> bool:
@@ -59,11 +58,7 @@ def _is_centralized_pricing(con, product_id: int) -> bool:
 
 
 def _fit_checked(formula: str, data, cluster_groups=None):
-    """Fit an OLS model; return (model, singular_flag).
-
-    singular_flag is True if a SingularMatrixWarning fired OR if the covariance
-    matrix diagonal contains negative, NaN, or infinite values (near-singular).
-    """
+    """Fit an OLS model; return (model, singular_flag)."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         if cluster_groups is not None:
@@ -106,7 +101,7 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
         )
 
     n_weeks = con.sql(
-        "SELECT COUNT(DISTINCT week_no) FROM transactions WHERE product_id=?",
+        "SELECT COUNT(DISTINCT week_no) FROM product_week WHERE product_id=?",
         params=[product_id],
     ).fetchone()[0]
     if n_weeks < MIN_WEEKS_FOR_ESTIMATE:
