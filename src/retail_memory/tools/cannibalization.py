@@ -13,6 +13,7 @@ from statsmodels.tools.sm_exceptions import SingularMatrixWarning
 
 MIN_SHARED_STORES = 20
 MAX_DEPTH_CORRELATION = 0.95
+MIN_PRETREND_CORRELATION = 0.3
 CI_LEVEL = 0.95
 
 
@@ -60,11 +61,32 @@ def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int)
         SELECT CORR(d_a, d_b) FROM a_depth JOIN b_depth USING (week_no)
     """
     res = con.sql(query).fetchone()[0]
-    
-    # If CORR returns NaN (e.g. zero variance in synthetic tests), treat as perfect lockstep
     if res is not None and math.isnan(res):
         return 1.0
-        
+    return res
+
+
+def _get_pretrend_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> float | None:
+    """Check if the neighbor's sales trended similarly to the promoted product 
+    in the 4 weeks before each promo week."""
+    query = f"""
+        WITH promo_weeks AS (
+            SELECT DISTINCT week_no AS pw FROM product_store_week
+            WHERE product_id = {id_a} AND is_price_promo AND NOT is_featured
+        ),
+        pre_weeks AS (
+            SELECT DISTINCT p.pw AS promo_week, w.week_no AS pre_week
+            FROM promo_weeks p
+            JOIN product_week w ON w.week_no BETWEEN p.pw - 4 AND p.pw - 1
+        )
+        SELECT CORR(a.total_quantity, COALESCE(b.total_quantity, 0))
+        FROM pre_weeks pw
+        JOIN product_week a ON a.week_no = pw.pre_week AND a.product_id = {id_a}
+        LEFT JOIN product_week b ON b.week_no = pw.pre_week AND b.product_id = {id_b}
+    """
+    res = con.sql(query).fetchone()[0]
+    if res is not None and math.isnan(res):
+        return 1.0
     return res
 
 
@@ -82,7 +104,7 @@ def detect_cannibalization(
             None, None, None, None, "insufficient_data", None, n_stores, 0, notes
         )
 
-    # Guardrail 2: Depth correlation (checking if the whole category is on promo together)
+    # Guardrail 2: Depth correlation
     corr = _get_depth_correlation(con, promoted_product_id, neighbor_product_id)
     if corr is not None and corr > MAX_DEPTH_CORRELATION:
         notes.append(f"Discount depth correlation is {corr:.3f} (max allowed {MAX_DEPTH_CORRELATION}). "
@@ -92,8 +114,17 @@ def detect_cannibalization(
             None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
         )
 
-    # Guardrail 3: Regression with Singular Matrix check
-    # Uses the full panel (all weeks A was sold) and restricts to stores that carry B.
+    # Guardrail 3: Pre-trend correlation
+    pretrend_corr = _get_pretrend_correlation(con, promoted_product_id, neighbor_product_id)
+    if pretrend_corr is not None and pretrend_corr < MIN_PRETREND_CORRELATION:
+        notes.append(f"Pre-trend correlation is {pretrend_corr:.3f} (min required {MIN_PRETREND_CORRELATION}). "
+                     f"Neighbor's sales did not trend similarly to the promoted product before the promo.")
+        return CannibalizationEstimate(
+            promoted_product_id, neighbor_product_id, "refused_pretrend",
+            None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
+        )
+
+    # Guardrail 4: Regression with Singular Matrix check
     query = f"""
         WITH a_data AS (
             SELECT store_id, week_no, total_quantity AS qty_A, discount_depth AS depth_A
@@ -104,12 +135,8 @@ def detect_cannibalization(
             FROM product_store_week WHERE product_id = {neighbor_product_id}
         )
         SELECT 
-            a.store_id, 
-            a.week_no, 
-            a.qty_A, 
-            a.depth_A,
-            COALESCE(b.qty_B, 0) AS qty_B, 
-            COALESCE(b.depth_B, 0) AS depth_B
+            a.store_id, a.week_no, a.qty_A, a.depth_A,
+            COALESCE(b.qty_B, 0) AS qty_B, COALESCE(b.depth_B, 0) AS depth_B
         FROM a_data a
         INNER JOIN (SELECT DISTINCT store_id FROM b_data) b_stores ON a.store_id = b_stores.store_id
         LEFT JOIN b_data b ON a.store_id = b.store_id AND a.week_no = b.week_no
