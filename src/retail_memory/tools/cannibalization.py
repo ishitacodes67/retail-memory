@@ -124,7 +124,7 @@ def detect_cannibalization(
             None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
         )
 
-    # Guardrail 4: Regression with Singular Matrix check
+    # Guardrail 4: Regression with Singular Matrix AND Negative Variance check
     query = f"""
         WITH a_data AS (
             SELECT store_id, week_no, total_quantity AS qty_A, discount_depth AS depth_A
@@ -151,29 +151,51 @@ def detect_cannibalization(
 
     df["log_B_qty"] = np.log(df["qty_B"] + 1)
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        try:
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             model = smf.ols("log_B_qty ~ depth_A + depth_B + C(week_no)", data=df).fit(
                 cov_type="cluster", cov_kwds={"groups": df["store_id"]}
             )
-            singular = any(issubclass(w.category, SingularMatrixWarning) for w in caught)
-        except Exception as e:
-            notes.append(f"Regression failed to converge: {e}")
-            return CannibalizationEstimate(
-                promoted_product_id, neighbor_product_id, "insufficient_data",
-                None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
-            )
+            
+            # 1. Catch Rank Deficiency (SingularMatrixWarning)
+            if any(issubclass(w.category, SingularMatrixWarning) for w in caught):
+                notes.append("Rank-deficient design matrix (SingularMatrixWarning). Refusing.")
+                return CannibalizationEstimate(
+                    promoted_product_id, neighbor_product_id, "insufficient_data",
+                    None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
+                )
+            
+            # 2. Deterministic check for numerical instability (Negative Variance)
+            cov_diag = np.diag(model.cov_params())
+            if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
+                notes.append("Negative or NaN variance in covariance matrix. "
+                             "Standard errors are invalid; refusing.")
+                return CannibalizationEstimate(
+                    promoted_product_id, neighbor_product_id, "insufficient_data",
+                    None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
+                )
 
-    if singular:
-        notes.append("Rank-deficient design matrix (SingularMatrixWarning). Refusing.")
+            coef = model.params["depth_A"]
+            ci = model.conf_int().loc["depth_A"]
+            
+            # 3. Catch NaN Confidence Intervals
+            if len(ci) != 2 or np.isnan(ci[0]) or np.isnan(ci[1]) or np.isnan(coef):
+                notes.append("Confidence interval or coefficient is NaN. Refusing.")
+                return CannibalizationEstimate(
+                    promoted_product_id, neighbor_product_id, "insufficient_data",
+                    None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
+                )
+                
+            ci_low, ci_high = ci[0], ci[1]
+            
+    except Exception as e:
+        notes.append(f"Regression failed to converge: {e}")
         return CannibalizationEstimate(
             promoted_product_id, neighbor_product_id, "insufficient_data",
             None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
         )
 
-    coef = model.params["depth_A"]
-    ci_low, ci_high = model.conf_int().loc["depth_A"]
     excludes_zero = (ci_low > 0) or (ci_high < 0)
     confidence = "high" if excludes_zero else "low"
     if not excludes_zero:
