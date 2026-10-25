@@ -38,7 +38,7 @@ def test_promo_table_exists_and_is_reasonable():
             "SELECT AVG(is_price_promo::INT) FROM product_store_week"
         ).fetchone()[0]
     assert n > 0
-    assert 0 < promo_rate < 0.5  # a promo should be a minority of weeks, not the norm
+    assert 0 < promo_rate < 0.5
 
 
 def test_discount_depth_is_always_in_valid_range():
@@ -51,13 +51,6 @@ def test_discount_depth_is_always_in_valid_range():
 
 
 def test_any_store_flag_bound_holds():
-    """Permanent guard for the D-006 rename.
-
-    If is_price_promo_any_store means "at least one store's depth >= 0.35", then
-    every row flagged False must have its volume-weighted aggregate depth below
-    0.35, because a weighted average cannot exceed its largest input. If this
-    ever fails, the flag and the threshold have drifted apart.
-    """
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
         max_when_false = con.sql(
             "SELECT MAX(discount_depth) FROM product_week "
@@ -67,14 +60,13 @@ def test_any_store_flag_bound_holds():
 
 
 def test_real_cannibalization_estimate():
-    """Lock in the real A/B pair result to catch regressions.
-    
-    Note: We expect 'insufficient_data' here because the clustered standard 
-    errors produce a tiny negative variance (-4.29e-14) due to floating-point 
-    precision, which triggers the negative-variance guardrail.
-    """
+    """Lock in the real A/B pair result to catch regressions."""
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
         res = detect_cannibalization(con, 1127831, 860299)
         
     assert res.status == "insufficient_data"
     assert any("variance" in n.lower() for n in res.notes)
+    
+    # Lock in the exact correlation so a stale join (like the 0.887 bug) 
+    # is caught immediately by CI.
+    assert res.depth_correlation == pytest.approx(0.176, abs=0.01)

@@ -1,8 +1,9 @@
 """Tests for get_sales_summary (FR1), using a small synthetic product_week."""
 
+from unittest.mock import patch
+
 import duckdb
 import pytest
-from unittest.mock import patch
 
 from retail_memory.tools.sales_summary import get_sales_summary
 

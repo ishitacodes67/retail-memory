@@ -1,4 +1,5 @@
 import os
+
 import duckdb
 from dotenv import load_dotenv
 from groq import Groq
@@ -13,7 +14,10 @@ client = Groq(api_key=os.environ["GROQ_API_KEY"])
 with open("prompts/v2.txt", "r", encoding="utf-8") as f:
     V2 = f.read()
 
-Q = "What's the sales summary for product 1127831 between weeks 1 and 20, and should I discount it assuming a 30% margin?"
+Q = (
+    "What's the sales summary for product 1127831 between weeks 1 and 20, "
+    "and should I discount it assuming a 30% margin?"
+)
 
 for prompt_text, label in [(SYSTEM_PROMPT_V1, "v1"), (V2, "v2")]:
     print(f"\n--- {label} ---")

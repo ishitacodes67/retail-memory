@@ -558,27 +558,39 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - Full multi-intent resolution requires either (a) sequential multi-turn tool calls within a single user question (a real Day 19+ feature), or (b) parallel tool calls with `parallel_tool_calls=True` and a handler that chains results. Both are deferred.
   - The v2 prompt file is kept for reference even though it doesn't work today. When multi-intent support lands, rule 6 becomes meaningful again.
   - The text-quality check currently only catches (i) empty text, (ii) fabricated confidence %. Other failure modes (wrong numbers, hallucinated explanations) are not caught. A fuller rubric is a future pass.
-  ### D-021: Continuous-depth feasibility check and verdict
+
+---
+
+### D-019: Naive cannibalization baseline
 - **Date:** 2026-10-23
-- **Context:** The binary DiD failed because the entire category is promoted in clustered campaigns. The proposed fix was to use continuous discount depth in a regression. Before building the regression, we ran a feasibility check to see if there was enough independent variation in discount depth across SKUs.
-- **The Correlation Check:** During the 15 weeks where both A and B had data, the correlation of their discount depths was **0.887**. 
-- **The Category Spread:** Looking at the standard deviation of discount depths across all strawberry SKUs in each promo week, most weeks have a std dev between **0.03 and 0.08**. 
-- **Verdict:** The category is promoted in *lockstep timing*, but not *lockstep depth*. There is meaningful independent variation (e.g., week 8 had A at 5% and B at 0%). 
-- **Decision:** Proceed with building the continuous-depth regression. The model will be: `log(B_quantity) ~ A_discount_depth + B_discount_depth + C(week_no)`. This controls for B's own promotions (fixing the Day 20 contamination) and uses week fixed effects to absorb the clustered campaign timing.
+- **Context:** Following the elasticity methodology, the first step in cannibalization detection is a naive before/after comparison. The goal is to record a number before knowing it's wrong.
+- **Pair chosen:**
+  - **Promoted Product (A):** 1127831 (Strawberries, National brand, 16 OZ)
+  - **Neighbor Product (B):** 860299 (Strawberries, National brand, 16 OZ)
+  - **Rationale:** Same sub-commodity and brand tier, making them plausible substitutes. Product A has enough clean promo data (491 clean promo store-weeks across 24 weeks) to make a stable comparison.
+- **Naive methodology:** Compare the average units sold during Product A's promo weeks against the average units sold during all other weeks, for both A and B.
+- **Naive result:**
+  - Product A: +68.6% lift during promo weeks.
+  - Product B: -12.6% drop during A's promo weeks.
+- **Naive interpretation (to be broken):** The promotion on A worked (+68.6%) and it stole roughly 12.6% of B's volume.
+
+---
+
+### D-020: DiD failure, corrected numbers, and the verdict on category vs. store-wide effects
+- **Date:** 2026-10-23
+- **Context:** The naive -12.6% drop for B was suspected of being biased. We attempted a Difference-in-Differences (DiD) fix.
+- **Correction:** The initial DiD query was flawed. It used an `INNER JOIN` between B and C. Because C almost never sold, the join dropped 21 of A's 24 promo weeks, inflating B's average during-promo from 17.9 to 77.0. The Day 19 naive numbers (B: 17.9 during, 20.4 baseline) are the correct ones.
+- **The failed DiD attempt:** Even when calculating correctly, a binary DiD is impossible. During A's promo weeks, Product B was aggressively promoted too (e.g., 26 promo store-weeks vs 6 normal store-weeks in week 54). A "clean" comparison of non-promoted weeks was impossible because those weeks barely exist.
+- **Campaign clustering (not seasonality):** Product A's promo weeks (2-13, 28-33, 54-70, 95) span the whole dataset, but cluster in bursts. This is campaign clustering, not calendar seasonality.
+- **The Catalog-Wide Check:** To determine if this was a store-wide effect or a category-specific effect, we checked the promo rate of all other products during A's promo weeks.
+  - Overall baseline promo rate: 13.41%
+  - Promo rate during A's promo weeks: 13.71%
+  - **Verdict:** The store was not running a massive sale. The effect is **category-specific** (strawberries are promoted together).
+- **Conclusion:** Because the entire category is promoted simultaneously, binary promo flags cannot isolate cannibalization. The Day 21 pivot is confirmed: we must move to continuous discount depth.
+
+---
+
 ### D-021: Continuous-depth regression and cannibalization verdict
-- **Date:** 2026-10-23
-- **Context:** Binary promo flags failed because the whole category is promoted in lockstep. We pivoted to a continuous discount depth regression: `log(B_quantity) ~ A_discount_depth + B_discount_depth + C(week_no)`.
-- **Methodology:** Ran at the store-week grain (N=491) using a `LEFT JOIN` to ensure missing B sales were logged as 0. Used store-clustered standard errors to account for repeated store observations.
-- **Results:**
-  - Coefficient for A's discount depth: -0.545
-  - P-value: 0.3159
-  - 95% CI: [-1.61, 0.52]
-- **Verdict:** The point estimate is negative, but the effect is not statistically significant (p > 0.05, CI includes zero). 
-- **Conclusion:** We cannot statistically prove cannibalization for this pair in this dataset. While the methodology is now technically correct, the remaining cross-store variation in discount depth is too noisy to produce a significant result.
-- **Trade-offs / what I'd revisit:**
-  - Pooling: As seen in the elasticity work, single-product-pair analyses are underpowered. A future fix would pool data across multiple pairs of strawberry SKUs or across multiple categories to increase the sample size and statistical power.
-  - Endogeneity: We still cannot rule out that deeper discounts on A were specifically timed for weeks when B was already selling poorly for unobserved reasons.
-  ### D-021: Continuous-depth regression and cannibalization verdict
 - **Date:** 2026-10-23
 - **Context:** Binary promo flags failed because the whole category is promoted in lockstep. We pivoted to a continuous discount depth regression.
 - **Methodology:** 
@@ -595,3 +607,22 @@ Every non-obvious choice, with the trade-off. Write each entry when you decide, 
   - One-sided weeks (weeks where exactly one product is promoted) pull the correlation *down* sharply.
   The net 0.176 means the one-sided weeks dominate. This confirms genuine asymmetric promotional timing exists between A and B, not just a lack of data.
 - **Verdict:** The point estimate is near zero (-0.047) and statistically insignificant. The wide confidence interval is *not* due to collinearity, but simply because the true effect is tiny and the observational data is noisy. We **cannot distinguish the effect from zero**. The honest conclusion is a null result: deeper discounts on A do not measurably cannibalize B.
+
+---
+
+### D-022: detect_cannibalization tool implementation (FR3)
+- **Date:** 2026-10-24
+- **Context:** The notebook work in Days 19-21 validated the methodology for detecting cannibalization, but the agent only had two tools. FR3 requires a production-grade tool with specific failure behaviors.
+- **Decision:** Implement `src/retail_memory/tools/cannibalization.py` with the same structure and rigor as `estimate_elasticity`.
+- **Guardrails implemented:**
+  1. **Shared store check:** Refuse if the two products share fewer than 20 stores (prevents comparing across different store footprints).
+  2. **Depth correlation check:** Refuse if the correlation of discount depths during promo weeks exceeds 0.95 (prevents category-wide lockstep from masquerading as a clean comparison).
+  3. **Singular matrix check:** Wrap the regression in `warnings.catch_warnings()` and refuse if the design matrix is rank-deficient.
+- **Agent Integration:** Added `DetectCannibalizationArgs` to the Pydantic schemas, wired the function into `TOOL_FUNCTIONS`, and added two eval questions (`q21`, `q22`) to ensure the agent routes to it correctly.
+- **Verification:** 
+  - Reproduces the notebook result exactly: coefficient -0.047, confidence "low" (CI includes zero).
+  - Synthetic tests verify the correlation guardrail refuses when depths are identical.
+  - Tested that the tool correctly identifies insufficient stores for a fake neighbor.
+- **Trade-offs / what I'd revisit:**
+  - The pre-trend check specified in FR3 is not yet implemented (needs a few more weeks of historical data to compare trajectories).
+  - As with elasticity, this is a single-pair analysis. Pooling across multiple pairs or categories is the ultimate fix for statistical power, but out of scope for the current build.

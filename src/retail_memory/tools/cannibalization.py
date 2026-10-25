@@ -111,8 +111,11 @@ def detect_cannibalization(
     # Guardrail 2: Depth correlation
     corr = _get_depth_correlation(con, promoted_product_id, neighbor_product_id)
     if corr is not None and corr > MAX_DEPTH_CORRELATION:
-        notes.append(f"Discount depth correlation is {corr:.3f} (max allowed {MAX_DEPTH_CORRELATION}). "
-                     f"Category-wide lockstep makes separation impossible.")
+        notes.append(
+            f"Discount depth correlation is {corr:.3f} "
+            f"(max allowed {MAX_DEPTH_CORRELATION}). "
+            f"Category-wide lockstep makes separation impossible."
+        )
         return CannibalizationEstimate(
             promoted_product_id, neighbor_product_id, "refused_correlated",
             None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
@@ -121,8 +124,11 @@ def detect_cannibalization(
     # Guardrail 3: Pre-trend correlation
     pretrend_corr = _get_pretrend_correlation(con, promoted_product_id, neighbor_product_id)
     if pretrend_corr is not None and pretrend_corr < MIN_PRETREND_CORRELATION:
-        notes.append(f"Pre-trend correlation is {pretrend_corr:.3f} (min required {MIN_PRETREND_CORRELATION}). "
-                     f"Neighbor's sales did not trend similarly to the promoted product before the promo.")
+        notes.append(
+            f"Pre-trend correlation is {pretrend_corr:.3f} "
+            f"(min required {MIN_PRETREND_CORRELATION}). "
+            f"Neighbor's sales did not trend similarly to the promoted product."
+        )
         return CannibalizationEstimate(
             promoted_product_id, neighbor_product_id, "refused_pretrend",
             None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
@@ -171,17 +177,14 @@ def detect_cannibalization(
                 )
             
             # 2. Deterministic check for numerical instability (Negative Variance)
-            try:
-                cov_diag = np.diag(model.cov_params())
-                if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
-                    notes.append("Negative or NaN variance in covariance matrix. "
-                                 "Standard errors are invalid; refusing.")
-                    return CannibalizationEstimate(
-                        promoted_product_id, neighbor_product_id, "insufficient_data",
-                        None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
-                    )
-            except Exception:
-                pass
+            cov_diag = np.diag(model.cov_params())
+            if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
+                notes.append("Negative or NaN variance in covariance matrix. "
+                             "Standard errors are invalid; refusing.")
+                return CannibalizationEstimate(
+                    promoted_product_id, neighbor_product_id, "insufficient_data",
+                    None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
+                )
 
             coef = model.params["depth_A"]
             ci = model.conf_int().loc["depth_A"]

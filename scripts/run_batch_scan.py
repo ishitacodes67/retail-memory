@@ -1,6 +1,8 @@
 import duckdb
 import pandas as pd
+
 from retail_memory.tools.elasticity import estimate_elasticity
+
 
 def main():
     con = duckdb.connect("data/processed/retail.duckdb", read_only=True)

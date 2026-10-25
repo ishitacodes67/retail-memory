@@ -1,8 +1,9 @@
 """Builds the small, deployable database: derived/aggregate tables only. No raw
 per-transaction data, no causal_data. See D-022 for the dataset-terms rationale.
 """
-import duckdb
 from pathlib import Path
+
+import duckdb
 
 SOURCE_DB = "data/processed/retail.duckdb"
 DEMO_DB = "data/processed/demo.duckdb"
