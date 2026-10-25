@@ -34,15 +34,15 @@ class ElasticityEstimate:
 
 
 def _quantity_is_degenerate(con, product_id: int) -> bool:
-    row = con.sql(
+    row = con.execute(
         "SELECT pct_quantity_eq_1 FROM product_quantity_profile WHERE product_id = ?",
-        params=[product_id],
+        [product_id],
     ).fetchone()
     return row is None or row[0] > QUANTITY_DEGENERATE_THRESHOLD
 
 
 def _is_centralized_pricing(con, product_id: int) -> bool:
-    spread = con.sql(
+    spread = con.execute(
         """
         WITH store_prices AS (
             SELECT week_no, store_id, net_revenue / total_quantity AS price
@@ -52,7 +52,7 @@ def _is_centralized_pricing(con, product_id: int) -> bool:
             SELECT week_no, STDDEV(price) AS sd_p FROM store_prices GROUP BY week_no
         )
         """,
-        params=[product_id],
+        [product_id],
     ).fetchone()[0]
     return spread is None or spread < NEAR_UNIFORM_PRICE_SD
 
@@ -87,7 +87,7 @@ def _fit_checked(formula: str, data, cluster_groups=None):
 def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> ElasticityEstimate:
     notes: list[str] = []
 
-    if con.sql("SELECT 1 FROM product WHERE product_id=?", params=[product_id]).fetchone() is None:
+    if con.execute("SELECT 1 FROM product WHERE product_id=?", [product_id]).fetchone() is None:
         raise ValueError(f"No such product_id: {product_id}")
 
     if _quantity_is_degenerate(con, product_id):
@@ -100,9 +100,9 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
             product_id, "refused", None, None, None, "insufficient_data", 0, None, notes
         )
 
-    n_weeks = con.sql(
+    n_weeks = con.execute(
         "SELECT COUNT(DISTINCT week_no) FROM product_week WHERE product_id=?",
-        params=[product_id],
+        [product_id],
     ).fetchone()[0]
     if n_weeks < MIN_WEEKS_FOR_ESTIMATE:
         notes.append(f"Only {n_weeks} weeks of sales (need >= {MIN_WEEKS_FOR_ESTIMATE}).")
@@ -113,24 +113,24 @@ def estimate_elasticity(con: duckdb.DuckDBPyConnection, product_id: int) -> Elas
     if _is_centralized_pricing(con, product_id):
         notes.append("Centralized pricing detected (D-006). Using month-dummy fallback, "
                      "not full week+store fixed effects.")
-        df = con.sql(
+        df = con.execute(
             """
             SELECT week_no,
                    LOG(total_quantity) AS log_qty,
                    LOG(net_revenue / total_quantity) AS log_price
             FROM product_week WHERE product_id=?
-            """, params=[product_id],
+            """, [product_id],
         ).df()
         df["month"] = ((df["week_no"] - 1) // 4) % 24
         model, singular = _fit_checked("log_qty ~ log_price + C(month)", df)
         method = "month_fallback"
     else:
-        df = con.sql(
+        df = con.execute(
             """
             SELECT week_no, store_id, total_quantity,
                    net_revenue / total_quantity AS price
             FROM product_store_week WHERE product_id=?
-            """, params=[product_id],
+            """, [product_id],
         ).df()
         df["log_qty"] = np.log(df["total_quantity"])
         df["log_price"] = np.log(df["price"])

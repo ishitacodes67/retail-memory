@@ -27,14 +27,14 @@ EXPECTED_ROWS = {
 @pytest.mark.parametrize("table", EXPECTED_ROWS)
 def test_row_counts_match_data_notes(table: str):
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
-        (count,) = con.sql(f"SELECT COUNT(*) FROM {table}").fetchone()
+        (count,) = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
     assert count == EXPECTED_ROWS[table]
 
 
 def test_promo_table_exists_and_is_reasonable():
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
-        n = con.sql("SELECT COUNT(*) FROM product_store_week").fetchone()[0]
-        promo_rate = con.sql(
+        n = con.execute("SELECT COUNT(*) FROM product_store_week").fetchone()[0]
+        promo_rate = con.execute(
             "SELECT AVG(is_price_promo::INT) FROM product_store_week"
         ).fetchone()[0]
     assert n > 0
@@ -43,7 +43,7 @@ def test_promo_table_exists_and_is_reasonable():
 
 def test_discount_depth_is_always_in_valid_range():
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
-        lo, hi = con.sql(
+        lo, hi = con.execute(
             "SELECT MIN(discount_depth), MAX(discount_depth) FROM product_store_week"
         ).fetchone()
     assert lo >= 0
@@ -52,7 +52,7 @@ def test_discount_depth_is_always_in_valid_range():
 
 def test_any_store_flag_bound_holds():
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
-        max_when_false = con.sql(
+        max_when_false = con.execute(
             "SELECT MAX(discount_depth) FROM product_week "
             "WHERE NOT is_price_promo_any_store"
         ).fetchone()[0]

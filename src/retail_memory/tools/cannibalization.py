@@ -41,7 +41,7 @@ def _get_shared_stores(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> 
             SELECT DISTINCT store_id FROM product_store_week WHERE product_id = {id_b}
         )
     """
-    return con.sql(query).fetchone()[0]
+    return con.execute(query).fetchone()[0]
 
 
 def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> float | None:
@@ -64,7 +64,7 @@ def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int)
             ON a.store_id = b.store_id 
            AND a.week_no = b.week_no
     """
-    res = con.sql(query).fetchone()[0]
+    res = con.execute(query).fetchone()[0]
     if res is not None and math.isnan(res):
         return 1.0
     return res
@@ -88,7 +88,7 @@ def _get_pretrend_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: i
         JOIN product_week a ON a.week_no = pw.pre_week AND a.product_id = {id_a}
         LEFT JOIN product_week b ON b.week_no = pw.pre_week AND b.product_id = {id_b}
     """
-    res = con.sql(query).fetchone()[0]
+    res = con.execute(query).fetchone()[0]
     if res is not None and math.isnan(res):
         return 1.0
     return res
@@ -151,7 +151,7 @@ def detect_cannibalization(
         INNER JOIN (SELECT DISTINCT store_id FROM b_data) b_stores ON a.store_id = b_stores.store_id
         LEFT JOIN b_data b ON a.store_id = b.store_id AND a.week_no = b.week_no
     """
-    df = con.sql(query).df()
+    df = con.execute(query).df()
     if len(df) < 30:
         notes.append(f"Only {len(df)} observations. Insufficient data.")
         return CannibalizationEstimate(
