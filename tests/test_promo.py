@@ -20,11 +20,11 @@ def con():
         display VARCHAR, mailer VARCHAR)""")
 
     rows = [
-        (10, 5, 1, 1, 2.00, 0.0),    # no discount, but featured
-        (11, 5, 1, 1, 1.60, -0.40),  # clean 20% price cut, not featured
-        (12, 5, 1, 1, 2.00, 3.99),   # anomalous positive retail_disc (D-003)
-        (13, 5, 1, 1, 1.50, -0.50),  # 25% price cut AND featured (confounded)
-        (14, 5, 1, 1, 2.00, 0.0),    # neither
+        (10, 5, 1, 1, 2.00, 0.0),
+        (11, 5, 1, 1, 1.60, -0.40),
+        (12, 5, 1, 1, 2.00, 3.99),
+        (13, 5, 1, 1, 1.50, -0.50),
+        (14, 5, 1, 1, 2.00, 0.0),
     ]
     connection.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?)", rows)
     connection.executemany(
@@ -36,7 +36,7 @@ def con():
 
 
 def _row(con, product_id):
-    return con.sql(
+    return con.execute(
         f"SELECT discount_depth, is_price_promo, is_featured "
         f"FROM product_store_week WHERE product_id = {product_id}"
     ).fetchone()
@@ -65,7 +65,7 @@ def test_clean_price_cut(con):
 def test_anomalous_positive_retail_disc_is_clipped(con):
     build_promo_table(con, THRESHOLD)
     depth, is_promo, is_featured = _row(con, 12)
-    assert depth == 0          # not a 200% "discount"
+    assert depth == 0
     assert is_promo is False
     assert is_featured is False
 
@@ -88,4 +88,4 @@ def test_neither_promo_nor_featured(con):
 def test_rebuild_replaces_old_table(con):
     build_promo_table(con, THRESHOLD)
     n = build_promo_table(con, THRESHOLD)
-    assert n == 5  # not 10: CREATE OR REPLACE, not appended
+    assert n == 5

@@ -50,10 +50,10 @@ def _reader_sql(table: str, csv_path: Path) -> str:
 
 def _load_table(con: duckdb.DuckDBPyConnection, table: str, csv_path: Path) -> int:
     reader = _reader_sql(table, csv_path)
-    columns = [row[0] for row in con.sql(f"DESCRIBE SELECT * FROM {reader}").fetchall()]
+    columns = [row[0] for row in con.execute(f"DESCRIBE SELECT * FROM {reader}").fetchall()]
     select_list = ", ".join(f'"{col}" AS "{col.lower()}"' for col in columns)
     con.execute(f"CREATE TABLE {table} AS SELECT {select_list} FROM {reader}")
-    return con.sql(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    return con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
 def build_database(
