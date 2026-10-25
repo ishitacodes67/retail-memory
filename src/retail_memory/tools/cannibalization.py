@@ -72,7 +72,8 @@ def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int)
 
 def _get_pretrend_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> float | None:
     """Check if the neighbor's sales trended similarly to the promoted product 
-    in the 4 weeks before each promo week."""
+    in the 4 weeks before each promo week. Returns the median store-level correlation
+    to avoid Simpson's Paradox (pooling masking divergent store-level trends)."""
     query = f"""
         WITH promo_weeks AS (
             SELECT DISTINCT week_no AS pw FROM product_store_week
@@ -82,11 +83,21 @@ def _get_pretrend_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: i
             SELECT DISTINCT p.pw AS promo_week, w.week_no AS pre_week
             FROM promo_weeks p
             JOIN product_week w ON w.week_no BETWEEN p.pw - 4 AND p.pw - 1
+        ),
+        pre_period AS (
+            SELECT a.store_id, a.week_no, a.total_quantity AS qty_a, b.total_quantity AS qty_b
+            FROM product_store_week a
+            JOIN product_store_week b ON a.store_id = b.store_id AND a.week_no = b.week_no
+            JOIN pre_weeks pw ON a.week_no = pw.pre_week
+            WHERE a.product_id = {id_a} AND b.product_id = {id_b}
+        ),
+        store_corrs AS (
+            SELECT store_id, CORR(qty_a, qty_b) AS corr
+            FROM pre_period
+            GROUP BY store_id
+            HAVING COUNT(*) >= 4
         )
-        SELECT CORR(a.total_quantity, COALESCE(b.total_quantity, 0))
-        FROM pre_weeks pw
-        JOIN product_week a ON a.week_no = pw.pre_week AND a.product_id = {id_a}
-        LEFT JOIN product_week b ON b.week_no = pw.pre_week AND b.product_id = {id_b}
+        SELECT MEDIAN(corr) FROM store_corrs
     """
     res = con.execute(query).fetchone()[0]
     if res is not None and math.isnan(res):
@@ -121,13 +132,14 @@ def detect_cannibalization(
             None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
         )
 
-    # Guardrail 3: Pre-trend correlation
+    # Guardrail 3: Pre-trend correlation (median store-level)
     pretrend_corr = _get_pretrend_correlation(con, promoted_product_id, neighbor_product_id)
     if pretrend_corr is not None and pretrend_corr < MIN_PRETREND_CORRELATION:
         notes.append(
-            f"Pre-trend correlation is {pretrend_corr:.3f} "
+            f"Median pre-trend correlation is {pretrend_corr:.3f} "
             f"(min required {MIN_PRETREND_CORRELATION}). "
-            f"Neighbor's sales did not trend similarly to the promoted product."
+            f"Neighbor's sales did not trend similarly to the promoted product "
+            f"in a majority of stores."
         )
         return CannibalizationEstimate(
             promoted_product_id, neighbor_product_id, "refused_pretrend",
