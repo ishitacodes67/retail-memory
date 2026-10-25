@@ -14,6 +14,7 @@ from statsmodels.tools.sm_exceptions import SingularMatrixWarning
 MIN_SHARED_STORES = 20
 MAX_DEPTH_CORRELATION = 0.95
 MIN_PRETREND_CORRELATION = 0.3
+BORDERLINE_MARGIN = 0.05
 CI_LEVEL = 0.95
 
 
@@ -45,8 +46,6 @@ def _get_shared_stores(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> 
 
 
 def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> float | None:
-    """Calculate the correlation of depths on the exact same full panel 
-    used by the regression (all weeks A was sold, matched stores, B filled with 0)."""
     query = f"""
         WITH a_data AS (
             SELECT store_id, week_no, discount_depth AS depth_A
@@ -71,9 +70,6 @@ def _get_depth_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int)
 
 
 def _get_pretrend_correlation(con: duckdb.DuckDBPyConnection, id_a: int, id_b: int) -> float | None:
-    """Check if the neighbor's sales trended similarly to the promoted product 
-    in the 4 weeks before each promo week. Returns the median store-level correlation
-    to avoid Simpson's Paradox (pooling masking divergent store-level trends)."""
     query = f"""
         WITH promo_weeks AS (
             SELECT DISTINCT week_no AS pw FROM product_store_week
@@ -134,17 +130,23 @@ def detect_cannibalization(
 
     # Guardrail 3: Pre-trend correlation (median store-level)
     pretrend_corr = _get_pretrend_correlation(con, promoted_product_id, neighbor_product_id)
-    if pretrend_corr is not None and pretrend_corr < MIN_PRETREND_CORRELATION:
-        notes.append(
-            f"Median pre-trend correlation is {pretrend_corr:.3f} "
-            f"(min required {MIN_PRETREND_CORRELATION}). "
-            f"Neighbor's sales did not trend similarly to the promoted product "
-            f"in a majority of stores."
-        )
-        return CannibalizationEstimate(
-            promoted_product_id, neighbor_product_id, "refused_pretrend",
-            None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
-        )
+    if pretrend_corr is not None:
+        if pretrend_corr < MIN_PRETREND_CORRELATION:
+            notes.append(
+                f"Median pre-trend correlation is {pretrend_corr:.3f} "
+                f"(min required {MIN_PRETREND_CORRELATION}). "
+                f"Neighbor's sales did not trend similarly to the promoted product "
+                f"in a majority of stores."
+            )
+            return CannibalizationEstimate(
+                promoted_product_id, neighbor_product_id, "refused_pretrend",
+                None, None, None, None, "insufficient_data", corr, n_stores, 0, notes
+            )
+        elif abs(pretrend_corr - MIN_PRETREND_CORRELATION) < BORDERLINE_MARGIN:
+            notes.append(
+                f"Pre-trend correlation ({pretrend_corr:.3f}) is close to the "
+                f"{MIN_PRETREND_CORRELATION} threshold; treat this control's validity as uncertain."
+            )
 
     # Guardrail 4: Regression with Singular Matrix AND Negative Variance check
     query = f"""
@@ -180,7 +182,6 @@ def detect_cannibalization(
                 cov_type="cluster", cov_kwds={"groups": df["store_id"]}
             )
             
-            # 1. Catch Rank Deficiency (SingularMatrixWarning)
             if any(issubclass(w.category, SingularMatrixWarning) for w in caught):
                 notes.append("Rank-deficient design matrix (SingularMatrixWarning). Refusing.")
                 return CannibalizationEstimate(
@@ -188,7 +189,6 @@ def detect_cannibalization(
                     None, None, None, None, "insufficient_data", corr, n_stores, len(df), notes
                 )
             
-            # 2. Deterministic check for numerical instability (Negative Variance)
             cov_diag = np.diag(model.cov_params())
             if (cov_diag < 0).any() or np.isnan(cov_diag).any() or np.isinf(cov_diag).any():
                 notes.append("Negative or NaN variance in covariance matrix. "
@@ -201,7 +201,6 @@ def detect_cannibalization(
             coef = model.params["depth_A"]
             ci = model.conf_int().loc["depth_A"]
             
-            # 3. Catch NaN Confidence Intervals
             if len(ci) != 2 or np.isnan(ci[0]) or np.isnan(ci[1]) or np.isnan(coef):
                 notes.append("Confidence interval or coefficient is NaN. Refusing.")
                 return CannibalizationEstimate(

@@ -5,3 +5,7 @@ statsmodels
 matplotlib
 groq
 pydantic
+fastapi
+uvicorn
+streamlit
+requests
