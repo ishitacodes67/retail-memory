@@ -1,8 +1,8 @@
 """Streamlit UI for Retail Memory."""
 
-import streamlit as st
-import requests
 import pandas as pd
+import requests
+import streamlit as st
 
 API_URL = "http://127.0.0.1:8000/chat"
 HEALTH_URL = "http://127.0.0.1:8000/health"
@@ -82,8 +82,10 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 2. State Management
 # -----------------------------------------------------------------------------
-if "messages" not in st.session_state: st.session_state.messages = []
-if "pending_prompt" not in st.session_state: st.session_state.pending_prompt = None
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "pending_prompt" not in st.session_state:
+    st.session_state.pending_prompt = None
 
 def start_new_chat():
     st.session_state.messages = []

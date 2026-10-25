@@ -1,24 +1,21 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "retail-memory"
-version = "0.0.1"
-description = "AI pricing advisor agent: discount depth and cannibalization detection."
+version = "0.1.0"
 requires-python = ">=3.10"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-extend-exclude = ["notebooks"]
+extend-exclude = ["notebooks", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore line length in files with HTML/CSS or long prompt strings
+"app.py" = ["E501"]
+"src/retail_memory/agent/prompts.py" = ["E501"]

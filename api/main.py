@@ -1,11 +1,12 @@
 """FastAPI backend for Retail Memory."""
 
 import os
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+
 import duckdb
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
 from groq import Groq
+from pydantic import BaseModel
 
 from retail_memory.agent.loop import answer_question
 
