@@ -33,26 +33,26 @@ class MarkdownRecommendation:
 
 def _current_price(con, product_id: int) -> float | None:
     """Volume-weighted price over the most recent N weeks."""
-    row = con.sql(
-        """
+    row = con.execute(
+        f"""
         WITH recent AS (
             SELECT net_revenue, total_quantity
             FROM product_week
             WHERE product_id = ?
             ORDER BY week_no DESC
-            LIMIT ?
+            LIMIT {RECENT_WEEKS_FOR_CURRENT_PRICE}
         )
         SELECT SUM(net_revenue) / SUM(total_quantity) FROM recent
         """,
-        params=[product_id, RECENT_WEEKS_FOR_CURRENT_PRICE],
+        [product_id],
     ).fetchone()
     return row[0] if row and row[0] is not None else None
 
 
 def _historical_max_discount_depth(con, product_id: int) -> float:
-    row = con.sql(
+    row = con.execute(
         "SELECT MAX(discount_depth) FROM product_week WHERE product_id = ?",
-        params=[product_id],
+        [product_id],
     ).fetchone()
     return row[0] if row and row[0] is not None else 0.0
 

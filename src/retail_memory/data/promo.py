@@ -46,7 +46,7 @@ def build_promo_table(con: duckdb.DuckDBPyConnection, threshold: float = DEFAULT
         """,
         [threshold],
     )
-    return con.sql("SELECT COUNT(*) FROM product_store_week").fetchone()[0]
+    return con.execute("SELECT COUNT(*) FROM product_store_week").fetchone()[0]
 
 
 def build_product_week_table(
@@ -92,7 +92,7 @@ def build_product_week_table(
            AND w.week_no = f.week_no
         """,
     )
-    return con.sql("SELECT COUNT(*) FROM product_week").fetchone()[0]
+    return con.execute("SELECT COUNT(*) FROM product_week").fetchone()[0]
 
 
 def build_quantity_profile_table(con: duckdb.DuckDBPyConnection) -> int:
@@ -106,7 +106,7 @@ def build_quantity_profile_table(con: duckdb.DuckDBPyConnection) -> int:
         WHERE quantity > 0
         GROUP BY product_id
     """)
-    return con.sql("SELECT COUNT(*) FROM product_quantity_profile").fetchone()[0]
+    return con.execute("SELECT COUNT(*) FROM product_quantity_profile").fetchone()[0]
 
 
 def main(argv: list[str] | None = None) -> None:
