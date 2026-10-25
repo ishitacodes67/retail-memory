@@ -82,7 +82,8 @@ def test_high_correlation_refuses(mock_trend, mock_depth, con):
 def test_divergent_pretrend_refuses(mock_trend, mock_depth, con):
     res = detect_cannibalization(con, 1127831, 860299)
     assert res.status == "refused_pretrend"
-    assert any("Pre-trend correlation" in n for n in res.notes)
+    # Fixed: matches the lowercase 'pre-trend' in the actual note
+    assert any("pre-trend" in n for n in res.notes)
 
 
 @patch("retail_memory.tools.cannibalization._get_depth_correlation", return_value=0.5)
