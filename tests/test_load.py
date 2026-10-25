@@ -7,7 +7,6 @@ import pytest
 
 from retail_memory.data.load import RAW_FILES, build_database
 
-# Same headers (and header casing) as the real Dunnhumby files, two rows each.
 FIXTURES: dict[str, str] = {
     "transaction_data.csv": (
         "household_key,BASKET_ID,DAY,PRODUCT_ID,QUANTITY,SALES_VALUE,STORE_ID,"
@@ -78,9 +77,9 @@ def test_column_names_are_lowercase(raw_dir: Path, tmp_path: Path):
     build_database(raw_dir, db_path)
     with duckdb.connect(str(db_path), read_only=True) as con:
         for table in RAW_FILES:
-            columns = [row[0] for row in con.sql(f"DESCRIBE {table}").fetchall()]
+            columns = [row[0] for row in con.execute(f"DESCRIBE {table}").fetchall()]
             assert columns == [c.lower() for c in columns], table
-        first = con.sql("SELECT basket_id FROM transactions LIMIT 1").fetchone()
+        first = con.execute("SELECT basket_id FROM transactions LIMIT 1").fetchone()
     assert first is not None
 
 
@@ -88,11 +87,13 @@ def test_code_columns_stay_text(raw_dir: Path, tmp_path: Path):
     db_path = tmp_path / "test.duckdb"
     build_database(raw_dir, db_path)
     with duckdb.connect(str(db_path), read_only=True) as con:
-        trans_time = con.sql(
+        trans_time = con.execute(
             "SELECT trans_time FROM transactions ORDER BY product_id LIMIT 1"
         ).fetchone()[0]
-        types = dict(con.sql("SELECT column_name, column_type FROM (DESCRIBE causal)").fetchall())
-    assert trans_time == "0040"  # leading zeros survive
+        types = dict(
+            con.execute("SELECT column_name, column_type FROM (DESCRIBE causal)").fetchall()
+        )
+    assert trans_time == "0040"
     assert types["display"] == "VARCHAR"
     assert types["mailer"] == "VARCHAR"
 
@@ -107,4 +108,4 @@ def test_rebuild_replaces_old_database(raw_dir: Path, tmp_path: Path):
     db_path = tmp_path / "test.duckdb"
     build_database(raw_dir, db_path)
     counts = build_database(raw_dir, db_path)
-    assert counts["transactions"] == 2  # not 4: the old database was replaced
+    assert counts["transactions"] == 2

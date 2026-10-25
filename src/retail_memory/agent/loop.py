@@ -19,6 +19,7 @@ from groq import Groq
 
 from retail_memory.agent.prompts import SYSTEM_PROMPT_V1
 from retail_memory.agent.schemas import ALL_TOOLS
+from retail_memory.tools.cannibalization import detect_cannibalization
 from retail_memory.tools.markdown import recommend_markdown
 from retail_memory.tools.sales_summary import get_sales_summary
 
@@ -33,6 +34,7 @@ MAX_TOOL_CALLS_PER_QUESTION = 1
 TOOL_FUNCTIONS = {
     "get_sales_summary": get_sales_summary,
     "recommend_markdown": recommend_markdown,
+    "detect_cannibalization": detect_cannibalization,
 }
 
 PARAM_LABELS = {
@@ -40,6 +42,8 @@ PARAM_LABELS = {
     "start_week": "the starting week",
     "end_week": "the ending week",
     "margin": "the assumed margin",
+    "promoted_product_id": "the promoted product ID",
+    "neighbor_product_id": "the neighbor product ID",
 }
 
 
@@ -201,15 +205,9 @@ def _answer_question_inner(
             f"part separately.",
             result_dict,
         )
+
     return AgentResponse(
         question, "answered", call.function.name, args, [],
         follow_up_msg.content or "",
         result_dict,
     )
-from retail_memory.tools.cannibalization import detect_cannibalization
-
-TOOL_FUNCTIONS = {
-    "get_sales_summary": get_sales_summary,
-    "recommend_markdown": recommend_markdown,
-    "detect_cannibalization": detect_cannibalization,
-}

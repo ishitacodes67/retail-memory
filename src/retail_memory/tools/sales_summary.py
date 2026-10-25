@@ -32,15 +32,15 @@ class SalesSummary:
 
 
 def _dataset_week_range(con: duckdb.DuckDBPyConnection) -> tuple[int, int]:
-    return con.sql("SELECT MIN(week_no), MAX(week_no) FROM product_week").fetchone()
+    return con.execute("SELECT MIN(week_no), MAX(week_no) FROM product_week").fetchone()
 
 
 def get_sales_summary(
     con: duckdb.DuckDBPyConnection, product_id: int, start_week: int, end_week: int
 ) -> SalesSummary:
     """Summarize a product's sales over a week window, across all stores."""
-    if con.sql(
-        "SELECT 1 FROM product WHERE product_id = ?", params=[product_id]
+    if con.execute(
+        "SELECT 1 FROM product WHERE product_id = ?", [product_id]
     ).fetchone() is None:
         raise ValueError(f"No such product_id: {product_id}")
 
@@ -54,8 +54,8 @@ def get_sales_summary(
             f"data range {clamped_start}-{clamped_end}."
         )
 
-    commodity = con.sql(
-        "SELECT commodity_desc FROM product WHERE product_id = ?", params=[product_id]
+    commodity = con.execute(
+        "SELECT commodity_desc FROM product WHERE product_id = ?", [product_id]
     ).fetchone()[0]
     if commodity == COUPON_MISC_COMMODITY:
         notes.append(
@@ -63,14 +63,14 @@ def get_sales_summary(
             "purchasable product (see docs/data-notes.md, Day 3 investigation)."
         )
 
-    total_units, total_revenue, n_weeks, n_promo, n_featured = con.sql(
+    total_units, total_revenue, n_weeks, n_promo, n_featured = con.execute(
         """
         SELECT SUM(total_quantity), SUM(net_revenue), COUNT(*),
                SUM(is_price_promo_any_store::INT), SUM(is_featured::INT)
         FROM product_week
         WHERE product_id = ? AND week_no BETWEEN ? AND ?
         """,
-        params=[product_id, clamped_start, clamped_end],
+        [product_id, clamped_start, clamped_end],
     ).fetchone()
 
     if total_units is None:
