@@ -4,6 +4,7 @@ import subprocess
 import sys
 import time
 
+
 def start_fastapi():
     """Start FastAPI internally on port 8000."""
     subprocess.Popen([

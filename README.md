@@ -1,4 +1,6 @@
-# retail-memory
+# Retail Memory 🧪📊
+
+> **Live Demo**: https://retail-memory.onrender.com
 
 [![CI](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/ishitacodes67/retail-memory/actions/workflows/ci.yml)
 

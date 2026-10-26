@@ -1,5 +1,6 @@
 """Streamlit UI for Retail Memory."""
 import os
+
 import pandas as pd
 import plotly.graph_objects as go
 import requests
