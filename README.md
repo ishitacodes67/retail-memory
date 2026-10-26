@@ -63,3 +63,4 @@ The raw data is not redistributed in this repo. `scripts/build_demo_db.py` creat
 - **Sparsity**: Only 2,500 households, so per-store variation is noisy.
 - **Category-wide promos**: The retailer runs lockstep campaigns, making clean DiD impossible for cannibalization.
 - **Multi-intent questions**: The agent can currently only handle one tool call per question; compound questions are safely blocked with a clarification message.
+- - **Compute Constraints (Render Free Tier)**: The `recommend_markdown` tool fits an OLS regression per request. On the Render free tier (0.1 CPU), this compute-heavy operation can exceed typical frontend request timeouts. This is a known infrastructure constraint of the free hosting tier, not a correctness issue (all backend calculations have been independently verified).
