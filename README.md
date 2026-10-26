@@ -56,8 +56,7 @@ The raw data is not redistributed in this repo. `scripts/build_demo_db.py` creat
 - [x] Week 2: elasticity (naive vs fixed), `recommend_markdown`, backtest
 - [x] Week 3: Groq tool-calling agent, evals, guardrails
 - [x] Week 4: cannibalization (DiD failure → continuous depth fix)
-- [ ] Week 5: FastAPI, Streamlit, Docker, deploy
-- [ ] Week 6: docs, demo video, blog post
+- [x] Week 5: FastAPI, Streamlit, Docker, deploy
 
 ## Limitations
 
