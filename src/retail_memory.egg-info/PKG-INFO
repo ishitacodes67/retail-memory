@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: retail-memory
+Version: 0.0.1
+Summary: AI pricing advisor agent: discount depth and cannibalization detection.
+Requires-Python: >=3.10
+License-File: LICENSE
+Dynamic: license-file

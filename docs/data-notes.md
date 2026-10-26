@@ -1,0 +1,296 @@
+# Data notes
+
+## Files, sizes and columns
+| File | Rows | Columns | One row is... |
+|------|------|---------|---------------|
+| transaction_data.csv | 2,595,732 | household_key, BASKET_ID, DAY, PRODUCT_ID, QUANTITY, SALES_VALUE, STORE_ID, RETAIL_DISC, TRANS_TIME, WEEK_NO, COUPON_DISC, COUPON_MATCH_DISC | one product line in a basket, at one store, on one day |
+| causal_data.csv | 36,786,524 | PRODUCT_ID, STORE_ID, WEEK_NO, display, mailer | one product x store x week, with marketing flags |
+| product.csv | 92,353 | PRODUCT_ID, MANUFACTURER, DEPARTMENT, BRAND, COMMODITY_DESC, SUB_COMMODITY_DESC, CURR_SIZE_OF_PRODUCT | one product |
+| hh_demographic.csv | 801 | AGE_DESC, MARITAL_STATUS_CODE, INCOME_DESC, HOMEOWNER_DESC, HH_COMP_DESC, HOUSEHOLD_SIZE_DESC, KID_CATEGORY_DESC, household_key | one household |
+| campaign_desc.csv | 30 | DESCRIPTION, CAMPAIGN, START_DAY, END_DAY | one campaign |
+| campaign_table.csv | 7,208 | DESCRIPTION, household_key, CAMPAIGN | one household in one campaign |
+| coupon.csv | 124,548 | COUPON_UPC, PRODUCT_ID, CAMPAIGN | one coupon UPC x product x campaign |
+| coupon_redempt.csv | 2,318 | household_key, DAY, COUPON_UPC, CAMPAIGN | one coupon redemption event |
+
+## Q1. What is one row of transaction_data?
+
+SQL used:
+
+```sql
+SELECT * FROM txn LIMIT 5;
+SELECT basket_id, COUNT(*) FROM txn GROUP BY basket_id ORDER BY 2 DESC LIMIT 5;
+```
+
+Result:
+
+- First 5 rows all share household 2375 and basket 26984851472
+- Top baskets have 150-168 rows each
+
+My answer: One row is one product line item (one item, quantity, and price) inside one shopping basket, which belongs to one household, on one day, at one store.
+
+## Q2. How many weeks and days?
+
+SQL used:
+
+```sql
+SELECT MIN(week_no), MAX(week_no), COUNT(DISTINCT week_no), MIN(day), MAX(day) FROM txn;
+```
+
+Result:
+
+- week_no: 1 to 102
+- distinct weeks: 102
+- day: 1 to 711
+
+My answer: The data covers 102 weeks (about 2 years). 711 days / 7 = 101.6, which matches the 102 distinct weeks. Every week appears; no gaps.
+
+## Q3. How many products, stores and households?
+
+SQL used:
+
+```sql
+SELECT COUNT(DISTINCT product_id), COUNT(DISTINCT store_id), COUNT(DISTINCT household_key) FROM txn;
+SELECT COUNT(DISTINCT t.product_id) FROM txn t LEFT JOIN product p ON t.product_id = p.product_id WHERE p.product_id IS NULL;
+```
+
+Result:
+
+- distinct products: 92,339
+- distinct stores: 582
+- distinct households: 2,500
+- products sold but missing from product.csv: 0
+
+My answer: 92,339 products, 582 stores, 2,500 households. Every product sold has metadata in product.csv (referential integrity holds). 2,500 households is a small slice of shoppers, so per-product weekly volumes will be sparse and I'll need to focus on high-volume products.
+
+## Q4. What do the three discount columns mean?
+
+SQL used:
+
+```sql
+SELECT MIN(retail_disc), MAX(retail_disc), MIN(coupon_disc), MAX(coupon_disc), MIN(coupon_match_disc), MAX(coupon_match_disc) FROM txn;
+SELECT MAX(coupon_disc) FROM txn;
+SELECT product_id, quantity, sales_value, retail_disc, coupon_disc, coupon_match_disc FROM txn WHERE retail_disc <> 0 LIMIT 10;
+SELECT quantity, sales_value, retail_disc, coupon_disc, coupon_match_disc FROM txn WHERE coupon_disc <> 0 LIMIT 10;
+```
+
+Result:
+
+- retail_disc: min -180.00, max +3.99 (almost always zero or negative)
+- coupon_disc: min -55.93, max 0.00
+- coupon_match_disc: min -7.70, max 0.00
+- Rows where coupon_disc <> 0 include cases with retail_disc = 0 (e.g. qty 2, sales_value 3.78, retail_disc 0, coupon_disc -1.0). So the two discounts are separate, not nested.
+
+My answer (hypothesis, to test on Day 3): All three discount columns are almost always zero or negative, so a discount reduces the price. A few positive retail_disc values exist (max +3.99); investigate on Day 3.
+
+**Price formulas (Day 3 investigation):**
+
+net_unit_price  = sales_value / quantity                    # what the customer actually paid
+list_unit_price = (sales_value - retail_disc) / quantity     # price before the retailer's own discount
+
+Whether coupon_disc is already netted into sales_value is UNRESOLVED (Test B: 63 groups,
+57% vs 43% win-count, 95% CI [45%, 70%] — not distinguishable from chance). Neither formula
+above depends on this, so it does not block the project. coupon_disc + coupon_match_disc
+is reported separately as total_coupon_value, never folded into either price.
+
+retail_disc > 0 (36 of 2,595,732 rows, 0.0014%): 30 are floating-point noise on return-like
+rows (quantity <= 0); 6 are real small positive values on normal rows, unexplained (6 households, 6 days, 6 products, weeks 54-74, no coupon involvement; likely data entry glitches). Rule: clip retail_disc to min(retail_disc, 0) before use;
+log the affected row count in tool output metadata.
+
+**Provisional list-price reconstruction:**
+    list_unit_price = (sales_value - retail_disc) / quantity
+
+Whether `coupon_disc` must also be added back is unresolved (Test B was ambiguous). Revisit only if a tool needs shelf-price comparison across coupon and non-coupon rows.
+
+## Q5. What is causal_data?
+
+SQL used:
+
+```sql
+SELECT * FROM causal LIMIT 10;
+SELECT display, COUNT(*) FROM causal GROUP BY display ORDER BY 2 DESC;
+SELECT mailer, COUNT(*) FROM causal GROUP BY mailer ORDER BY 2 DESC;
+SELECT (display = '0') AS no_display, (mailer = '0') AS no_mailer, COUNT(*) FROM causal GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
+Result:
+
+- Grain: product_id x store_id x week_no
+- display values: 0, 1, 2, 3, 4, 5, 6, 7, 9, A
+- mailer values: 0, A, C, D, F, H, J, L, P, X, Z
+- Cross-tab:
+  - no display, has mailer: 21,038,745 rows (57.2%)
+  - has display, no mailer: 11,534,183 rows (31.4%)
+  - has display, has mailer: 4,213,596 rows (11.5%)
+  - no display, no mailer: 0 rows (0.0%)
+
+My answer: One row is one product, in one store, in one week, with a display flag and a mailer flag.
+
+Code meanings (from the `completejourney` R package documentation, which wraps this dataset):
+
+Display location codes:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Not on Display |
+| 1 | Store Front |
+| 2 | Store Rear |
+| 3 | Front End Cap |
+| 4 | Mid-Aisle End Cap |
+| 5 | Rear End Cap |
+| 6 | Side-Aisle End Cap |
+| 7 | In-Aisle |
+| 9 | Secondary Location Display |
+| A | In-Shelf |
+
+Mailer location codes:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Not on ad |
+| A | Interior page feature |
+| C | Interior page line item |
+| D | Front page feature |
+| F | Back page feature |
+| H | Wrap from feature |
+| J | Wrap interior coupon |
+| L | Wrap back feature |
+| P | Interior page coupon |
+| X | Free on interior page |
+| Z | Free on front page, back page or wrap |
+
+Key observation: every row in causal_data has at least one nonzero flag (0 rows with both display = '0' and mailer = '0'). Most likely this is because the table only lists product-store-weeks where something was featured; a product with no display and no flyer that week simply has no row. Hypothesis: "no row" = "not featured". Test on Day 3 by joining transactions to causal_data on product, store and week.
+
+Note on the name: "causal" here means "marketing treatments". Nobody randomly assigned which products got flyers or displays. That makes this observational data, not experimental. Any causal claim needs a proper design (diff-in-diff, control product, baseline), which is why Week 4 builds the naive-then-fixed story.
+
+## Q6. Strange rows (zero or negative)?
+
+SQL used:
+
+```sql
+SELECT COUNT(*) FROM txn WHERE quantity <= 0;
+SELECT COUNT(*) FROM txn WHERE sales_value <= 0;
+SELECT * FROM product WHERE product_id IN (5978648, 5978656);
+SELECT (quantity <= 0) AS qty_le0, (sales_value <= 0) AS val_le0, COUNT(*) FROM txn GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
+Result:
+
+- quantity <= 0: 14,466 rows (0.56% of total)
+- sales_value <= 0: 18,850 rows (0.73%)
+- Overlap:
+  - normal (qty>0, val>0): 2,576,815 rows
+  - both bad (qty<=0, val<=0): 14,399 rows, most likely returns or voided items
+  - val bad only (qty>0, val<=0): 4,451 rows, possibly free items
+  - qty bad only (qty<=0, val>0): 67 rows, very strange
+- Products 5978648 and 5978656 exist in product.csv with MANUFACTURER=1, BRAND='National', and every other field blank
+
+My answer: The 14,399 rows with both quantity<=0 and sales_value<=0 are most likely returns or voided items. The 4,451 rows with positive quantity but zero/negative sales_value are likely free items or data errors; flag on Day 3. The 67 rows with negative quantity but positive sales_value are strange; also flag.
+
+Two product IDs (5978648, 5978656) have minimal metadata in product.csv, consistent with coupon line items. I only checked those two, so I won't generalize to "everything above 5,000,000 is a coupon" without more evidence.
+
+Open decision: for revenue summaries, report gross (all rows) or net (returns subtracted)? For elasticity and cannibalization, exclude returns and free items.
+
+
+## Day 3 investigation
+
+### Coupon double-counting (Test B)
+- Hypothesis: `coupon_disc` is already inside `sales_value` (so subtracting it would double-count).
+- SQL used: same product/store/day, retail_disc=0, compare three candidate prices and count per-group wins.
+- Result (corrected, win-count version):
+  | n_groups | asis_wins | added_back_wins | avg_diff_asis | avg_diff_added_back |
+  |---|---|---|---|---|
+  | 63 | 26 | 35 | 0.224 | 0.618 |
+- Conclusion: **Ambiguous.** Win-count gives a slight edge to "coupon inside sales_value" (35/61). Average-distance gives an edge to "coupon separate" (0.22 vs 0.62). The two metrics disagree, which means neither story dominates across all 63 groups.
+- **Decision for the tools:** use the formula that doesn't depend on this question: net_unit_price = sales_value / quantity
+This is what the customer actually paid per unit. It's unambiguous under either hypothesis and drives all downstream tools.
+- **Provisional only:** list-price reconstruction `(sales_value - retail_disc) / quantity` may still need `coupon_disc` added back. Marked provisional — revisit if a tool actually needs it. No tool does today.
+
+### Causal data coverage (Test C)
+- SQL used: left join transactions to causal on (product, store, week); then top store-weeks by flagged-product count.
+- Result:
+- n_distinct_combos = 2,371,399
+- n_matched = 483,935 → **20.4%** of sold product-store-weeks have a causal row
+- Top store-week: 6,921 products flagged in store 369 week 63
+- Conclusion: Hypothesis **supported**. `causal_data` lists only notable/featured occasions. Most sold product-store-weeks have no row. But "has a causal row" would label ~20% of all product-store-weeks as promoted, which is too loose for a promo flag — thousands of items are flagged in a single store-week, consistent with weekly circulars rather than one-off promos. This is a design decision for Day 4, not a data fact.
+
+### Positive retail_disc (Test D)
+- SQL used: group positive retail_disc by whether quantity<=0, report count/min/max.
+- Result:
+  | is_return_like | count | min | max |
+  |---|---|---|---|
+  | false | 6 | ~0 (1.1e-16) | **+3.99** |
+  | true | 30 | ~0 (6.9e-18) | +2.09 |
+- Conclusion: 30 of 36 rows are return-like (quantity <= 0). Those are consistent with a reversed discount. The remaining 6 rows with quantity > 0 include the +3.99 max. That value is a real positive discount, not floating-point noise, and it is not attached to a return. It is unexplained and stays flagged as an outlier. `retail_disc` is effectively invariant at `<= 0` for aggregate work, but "invariant" is a working assumption, not a theorem.
+
+### Odd rows by department (Test E)
+- SQL used: group odd rows by product.department.
+- Result:
+- qty>0 & sales_value<=0: top departments GROCERY (1198), MEAT-PCKGD (938), DRUG GM (662). Spread across 17 departments.
+- qty<=0 & sales_value>0: only 67 rows, top GROCERY (24), PRODUCE (19), DRUG GM (16). Spread across 7 departments.
+- Conclusion: No concentration in any single department, so these are **not** coupon bookkeeping lines. Treat them as returns (qty<=0) or free items / data errors (qty>0 & value<=0). Exclude from aggregates.
+
+### Store concentration (Test F)
+- Anchor product: 1029743 (FLUID MILK PRODUCTS)
+- SQL used: per-store row counts; min/max/avg/median; same for the anchor product.
+- Result:
+- All stores: min 1, max 75,573, avg 4,460, **median 30** rows.
+- Anchor product 1029743: min 2, max 420, avg 125, **median 109** transactions per store.
+- Conclusion: **Sparsity confirmed.** Median store has only 30 rows total in 2.6M. Even the top-selling product has ~420 transactions in its busiest store across 102 weeks, about 4 per week. Store-level difference-in-differences on individual stores will be impossible; Week 4 will need store grouping (e.g., by size or region), and product-level elasticity may need sub-commodity aggregation. This matches the revisit trigger from D-001.
+- **Caveat on comparing the two medians:** the "all stores" median (30 rows) is computed across all 582 stores. The anchor-product median (109) is computed only across stores where that product ever sold. Different populations. The 109 being higher than 30 is expected, not a contradiction.
+
+### Bonus: COUPON/MISC ITEMS contamination
+- Test A's top 3 "products" by revenue were all `COUPON/MISC ITEMS` (6534178, 6533889, 6534166). These are bookkeeping rows, not real products. Any revenue ranking or product-level aggregation must exclude `commodity_desc = 'COUPON/MISC ITEMS'`.
+
+## Day 4 investigation: promo-week threshold
+
+### Distribution of discount depth (among weeks with any discount)
+| Percentile | Discount depth |
+|---|---|
+| p25 | 15.5% |
+| p50 | 24.4% |
+| p75 | 36.7% |
+| p90 | 46.7% |
+
+### Coverage at candidate thresholds
+| Threshold | Flagged weeks | % of 2,355,746 |
+|---|---:|---:|
+| >=5% | 1,148,885 | 48.8% |
+| >=10% | 1,029,733 | 43.7% |
+| >=15% | 893,100 | 37.9% |
+| >=20% | 725,960 | 30.8% |
+| >=25% | 565,656 | 24.0% |
+| >=30% | 446,384 | 19.0% |
+| **>=35%** | **316,372** | **13.4%** |
+| >=40% | 227,578 | 9.7% |
+| >=50% | 69,708 | 3.0% |
+
+**Chosen threshold: 0.35.**
+Baseline: **49.9%** of all product-store-weeks have any discount (`discount_depth > 0`). This confirms at week-grain what was previously only a row-grain claim. It's why the threshold must be well above zero - a "promo" defined as any discount would flag half the table.
+Two justifications:
+1. 13.4% coverage lands in the reviewer's target band of 5-15% - a promo is the exception, not the norm.
+2. It aligns with p75 of the discounted-week distribution (0.367). A 35% cutoff means "deeper discount than 75% of weeks that had any discount at all." Not a round number pulled from air.
+
+Note: at 0.05 the threshold flags ~half of all weeks, because this is a high-low pricing retailer where discounts are common. The threshold must be well above the median to be meaningful.
+
+### Confound cross-tab at threshold 0.35
+| is_price_promo | is_featured | Count | % of all |
+|---|---|---:|---:|
+| false | false | 1,744,362 | 74.0% |
+| false | true | 295,012 | 12.5% |
+| true | true | 186,199 | 7.9% |
+| true | false | 130,173 | 5.5% |
+
+Of 316,372 price-promo weeks:
+- **130,173 (41%) clean** - price cut only, no feature
+- **186,199 (59%) confounded** - price cut and feature together
+
+**Limitation carried into Week 4:** on 59% of promo weeks, a display or mailer was also present. Diff-in-diff cannot cleanly separate the price effect from the display effect on those weeks. The 130,173 clean weeks become the primary sample for cannibalization work.
+
+## Open questions
+
+- What counts as a "promo" for a product-week? Candidates: (a) a price cut, measured from retail_disc in transaction_data; (b) being featured, i.e. a row in causal_data and which display/mailer codes matter; (c) both. Decide on Day 4.
+
+- Does a missing causal_data row mean "not featured"? Test on Day 3.
+
+
+- For revenue summaries: gross (all rows) or net (returns subtracted)?

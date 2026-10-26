@@ -1,0 +1,30 @@
+# 1. Secrets & Environment
+.env
+.env.local
+*.pem
+
+# 2. Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# 3. Data (DO NOT COMMIT - we are downloading the DB via Dockerfile)
+data/raw/
+*.csv
+*.duckdb
+# (Note: We are explicitly ignoring ALL .duckdb files now)
+
+# 4. Python Caches & Build Files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# 5. IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
